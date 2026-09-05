@@ -126,6 +126,13 @@ export function PlayScreen({ settings, players, game, onExit, onRematch }: Props
     };
   }, [state.phase, state.current, state.given, state.stealGiven, client]);
 
+  // El robo comparte el campo de texto con el turno normal, asi que hay que
+  // vaciarlo al abrir la ventana: si no, el ladron encuentra escrita la
+  // respuesta que acaba de errar el otro.
+  useEffect(() => {
+    if (state.phase === 'steal') setAnswer('');
+  }, [state.phase]);
+
   // Sonido al cerrar cada ronda: es lo que le da cuerpo al acierto y al error.
   const closedAt = useRef(-1);
   useEffect(() => {

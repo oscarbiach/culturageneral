@@ -83,10 +83,17 @@ export function useCountdown(seconds: number | null, running: boolean, onEnd: ()
   useEffect(() => {
     if (!running || seconds == null) return undefined;
     const deadline = Date.now() + seconds * 1000;
+    // El intervalo corre a 250 ms para que la barra baje suave, pero el tic
+    // suena una sola vez por segundo: si no, en los ultimos tres son doce.
+    let lastBeep = Number.POSITIVE_INFINITY;
     const id = window.setInterval(() => {
       const remaining = Math.max(0, (deadline - Date.now()) / 1000);
       setLeft(remaining);
-      if (remaining <= 3 && remaining > 0) fx.tick();
+      const second = Math.ceil(remaining);
+      if (remaining > 0 && second <= 3 && second < lastBeep) {
+        lastBeep = second;
+        fx.tick();
+      }
       if (remaining <= 0 && !ended.current) {
         ended.current = true;
         window.clearInterval(id);

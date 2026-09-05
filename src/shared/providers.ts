@@ -107,8 +107,15 @@ const OPENAI_COMPATIBLE: Partial<Record<ProviderId, string>> = {
   openrouter: 'https://openrouter.ai/api/v1',
 };
 
+/** Tapa cualquier cosa con pinta de API key antes de que llegue a la pantalla. */
+function redactKeys(text: string): string {
+  return text
+    .replace(/\b(sk|gsk|sk-or|xai)[-_][A-Za-z0-9_-]{8,}/gi, '***')
+    .replace(/\bAIza[A-Za-z0-9_-]{10,}/g, '***');
+}
+
 function httpError(status: number, body: string): AiError {
-  const detail = body.slice(0, 300);
+  const detail = redactKeys(body.slice(0, 300));
   if (status === 401 || status === 403) {
     return new AiError(`El proveedor rechazó la API key (${status}). ${detail}`, 'unauthorized');
   }

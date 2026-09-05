@@ -1,0 +1,88 @@
+/*
+  Paleta y medidas del sistema.
+
+  El look es neobrutalista: trazo grueso, sombra dura desplazada y colores planos
+  saturados. Todo se apoya en dos variables, --ink (trazo y texto) y --paper
+  (fondo); el modo oscuro las invierte y el resto de la interfaz lo sigue sola,
+  sin tocar un solo componente.
+
+  Los tres bloques de abajo son a proposito: claro en :root pelado, oscuro por
+  preferencia del sistema (salvo que el usuario haya elegido claro a mano), y
+  oscuro forzado por el selector de Ajustes.
+*/
+
+:root {
+  color-scheme: light;
+
+  --ink: #101014;
+  --paper: #fff3dd;
+  --card: #ffffff;
+  --muted: #6b6b76;
+  --sunken: #f0ead9;
+
+  --lime: #c9f227;
+  --cyan: #3ad8f0;
+  --pink: #ff4d9d;
+  --violet: #9b6bff;
+  --orange: #ff9022;
+  --red: #ff4b3e;
+  --green: #2fd07a;
+
+  /* Texto que va encima de cualquier color plano de la paleta. */
+  --on-color: #101014;
+
+  --stroke: 3px;
+  --radius: 16px;
+  --radius-sm: 10px;
+  --shadow: 5px 5px 0 var(--ink);
+  --shadow-sm: 3px 3px 0 var(--ink);
+  --shadow-lg: 8px 8px 0 var(--ink);
+
+  --font-display: 'Archivo Black', 'Arial Black', 'Helvetica Neue', system-ui, sans-serif;
+  --font-body: 'Space Grotesk', system-ui, -apple-system, 'Segoe UI', sans-serif;
+
+  /* Salida rapida y frenada suave: da sensacion de peso sin arrastrarse. */
+  --ease: cubic-bezier(0.2, 0.9, 0.25, 1);
+  --ease-back: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --fast: 140ms;
+  --normal: 260ms;
+  --slow: 460ms;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='claro']) {
+    color-scheme: dark;
+
+    --ink: #f6f2e6;
+    --paper: #0e0e14;
+    --card: #1c1c26;
+    --muted: #a2a2b0;
+    --sunken: #262632;
+
+    --lime: #b6e01c;
+    --cyan: #2ec6de;
+    --pink: #ff3f95;
+    --violet: #8f5cff;
+    --orange: #ff8412;
+    --red: #ff4034;
+    --green: #22c06c;
+  }
+}
+
+:root[data-theme='oscuro'] {
+  color-scheme: dark;
+
+  --ink: #f6f2e6;
+  --paper: #0e0e14;
+  --card: #1c1c26;
+  --muted: #a2a2b0;
+  --sunken: #262632;
+
+  --lime: #b6e01c;
+  --cyan: #2ec6de;
+  --pink: #ff3f95;
+  --violet: #8f5cff;
+  --orange: #ff8412;
+  --red: #ff4034;
+  --green: #22c06c;
+}

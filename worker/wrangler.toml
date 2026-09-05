@@ -1,0 +1,29 @@
+name = "mano-a-mano"
+main = "src/index.ts"
+compatibility_date = "2025-01-01"
+# El SDK de Anthropic necesita las APIs de Node; los demas proveedores van con
+# fetch a secas y no lo usan.
+compatibility_flags = ["nodejs_compat"]
+
+[vars]
+# Proveedor y modelo que paga este Worker. Cambialos y redesplegá.
+PROVIDER = "gemini"
+MODEL = "gemini-3.8-flash"
+
+# Dejalo en "*" mientras probás; cuando publiques, poné la URL de tu GitHub Pages
+# para que nadie mas pueda consumir tu key desde otra pagina.
+ALLOWED_ORIGINS = "*"
+
+# "true" deja que cada jugador elija proveedor y modelo desde Ajustes. Con la key
+# tuya de por medio, lo normal es dejarlo en "false".
+ALLOW_CLIENT_MODEL = "false"
+
+# Pedidos por IP por hora. Solo tiene efecto si atás el KV de abajo.
+RATE_LIMIT = "60"
+
+# Limite de uso (opcional pero recomendado). Crealo con:
+#   npx wrangler kv namespace create RATE
+# y pegá el id que te devuelve.
+# [[kv_namespaces]]
+# binding = "RATE"
+# id = "pegá-acá-el-id"

@@ -1,0 +1,740 @@
+/* ---------- Bloques ---------- */
+
+.card {
+  background: var(--card);
+  border: var(--stroke) solid var(--ink);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 16px;
+}
+
+.card-flat {
+  box-shadow: none;
+}
+
+.card-tint {
+  background: var(--tint, var(--card));
+  color: var(--on-color);
+}
+
+/* Chip pintado: pide color y texto oscuro juntos, para no perder contraste. */
+.chip-on {
+  background: var(--chip);
+  color: var(--on-color);
+  border-color: var(--ink);
+}
+
+/* ---------- Botones ---------- */
+
+.btn {
+  --btn-bg: var(--card);
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 52px;
+  padding: 12px 18px;
+  background: var(--btn-bg);
+  color: var(--on-color);
+  border: var(--stroke) solid var(--ink);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  font-family: var(--font-display);
+  font-size: 15px;
+  letter-spacing: 0.01em;
+  text-transform: uppercase;
+  cursor: pointer;
+  user-select: none;
+  /* El boton se hunde contra su propia sombra: el gesto se siente fisico. */
+  transition:
+    transform var(--fast) var(--ease),
+    box-shadow var(--fast) var(--ease),
+    filter var(--fast) var(--ease);
+}
+
+.btn:active:not(:disabled) {
+  transform: translate(4px, 4px);
+  box-shadow: 0 0 0 var(--ink);
+}
+
+.btn:disabled {
+  cursor: not-allowed;
+  filter: grayscale(0.7);
+  opacity: 0.55;
+  box-shadow: var(--shadow-sm);
+}
+
+.btn-block {
+  width: 100%;
+}
+
+.btn-lg {
+  min-height: 64px;
+  font-size: 19px;
+  box-shadow: var(--shadow-lg);
+}
+
+.btn-lg:active:not(:disabled) {
+  transform: translate(7px, 7px);
+}
+
+.btn-sm {
+  min-height: 40px;
+  padding: 8px 12px;
+  font-size: 13px;
+  box-shadow: var(--shadow-sm);
+}
+
+.btn-ghost {
+  --btn-bg: transparent;
+  color: var(--ink);
+  box-shadow: none;
+  border-color: transparent;
+}
+
+.btn-ghost:active:not(:disabled) {
+  transform: scale(0.96);
+}
+
+.btn-lime { --btn-bg: var(--lime); }
+.btn-cyan { --btn-bg: var(--cyan); }
+.btn-pink { --btn-bg: var(--pink); }
+.btn-violet { --btn-bg: var(--violet); }
+.btn-orange { --btn-bg: var(--orange); }
+.btn-green { --btn-bg: var(--green); }
+.btn-red { --btn-bg: var(--red); }
+
+/* ---------- Etiquetas ---------- */
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border: 2px solid var(--ink);
+  border-radius: 999px;
+  /* Deliberadamente NO usa --tint: esa variable la setean las tarjetas para
+     colorear su borde, y un chip adentro la heredaba y se pintaba solo. */
+  background: var(--chip, var(--sunken));
+  color: var(--chip-ink, inherit);
+  font-family: var(--font-display);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+/* ---------- Campos ---------- */
+
+.field {
+  width: 100%;
+  padding: 13px 14px;
+  background: var(--card);
+  border: var(--stroke) solid var(--ink);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-sm);
+  font-size: 16px; /* menos de 16px hace que iOS haga zoom al enfocar */
+  transition: box-shadow var(--fast) var(--ease), transform var(--fast) var(--ease);
+}
+
+.field:focus {
+  outline: none;
+  transform: translate(-1px, -1px);
+  box-shadow: 4px 4px 0 var(--violet);
+}
+
+textarea.field {
+  min-height: 96px;
+  resize: vertical;
+  line-height: 1.45;
+}
+
+/* ---------- Selector segmentado ---------- */
+
+.seg {
+  display: flex;
+  border: var(--stroke) solid var(--ink);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+  background: var(--card);
+}
+
+.seg > button {
+  flex: 1;
+  min-height: 46px;
+  padding: 8px 6px;
+  border: 0;
+  border-right: 2px solid var(--ink);
+  background: transparent;
+  font-family: var(--font-display);
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: background var(--fast) var(--ease), color var(--fast) var(--ease);
+}
+
+.seg > button:last-child {
+  border-right: 0;
+}
+
+.seg > button[aria-pressed='true'] {
+  background: var(--seg-active, var(--violet));
+  color: var(--on-color);
+}
+
+/* ---------- Interruptor ---------- */
+
+.switch {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  padding: 12px 0;
+  background: none;
+  border: 0;
+  cursor: pointer;
+  text-align: left;
+}
+
+.switch-track {
+  flex: none;
+  width: 56px;
+  height: 32px;
+  padding: 3px;
+  border: var(--stroke) solid var(--ink);
+  border-radius: 999px;
+  background: var(--sunken);
+  transition: background var(--normal) var(--ease);
+}
+
+.switch[aria-pressed='true'] .switch-track {
+  background: var(--lime);
+}
+
+.switch-thumb {
+  display: block;
+  width: 20px;
+  height: 20px;
+  border: 2px solid var(--ink);
+  border-radius: 999px;
+  background: var(--card);
+  transition: transform var(--normal) var(--ease-back);
+}
+
+.switch[aria-pressed='true'] .switch-thumb {
+  transform: translateX(24px);
+}
+
+/* ---------- Hoja inferior ---------- */
+
+.sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  background: color-mix(in srgb, var(--ink) 55%, transparent);
+  animation: fade var(--normal) var(--ease);
+  padding: 16px 0 0;
+}
+
+.sheet {
+  width: 100%;
+  max-width: 520px;
+  max-height: 88dvh;
+  overflow-y: auto;
+  background: var(--paper);
+  border: var(--stroke) solid var(--ink);
+  border-bottom: 0;
+  border-radius: 22px 22px 0 0;
+  padding:
+    18px 16px calc(env(safe-area-inset-bottom) + 20px);
+  animation: sheet-up var(--slow) var(--ease);
+}
+
+.sheet-grip {
+  width: 52px;
+  height: 5px;
+  margin: 0 auto 14px;
+  border-radius: 999px;
+  background: var(--ink);
+  opacity: 0.35;
+}
+
+/* ---------- Cinta de aviso ---------- */
+
+.notice {
+  display: flex;
+  gap: 10px;
+  padding: 12px 14px;
+  border: var(--stroke) solid var(--ink);
+  border-radius: var(--radius-sm);
+  background: var(--tint, var(--orange));
+  color: var(--on-color);
+  box-shadow: var(--shadow-sm);
+  font-size: 14px;
+  line-height: 1.35;
+}
+
+/* ---------- Animaciones ---------- */
+
+@keyframes fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes sheet-up {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
+
+@keyframes pop-in {
+  0% { transform: scale(0.9) translateY(10px); opacity: 0; }
+  100% { transform: scale(1) translateY(0); opacity: 1; }
+}
+
+@keyframes score-pop {
+  0% { transform: scale(1); }
+  40% { transform: scale(1.35) rotate(-3deg); }
+  100% { transform: scale(1); }
+}
+
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-9px); }
+  40% { transform: translateX(8px); }
+  60% { transform: translateX(-5px); }
+  80% { transform: translateX(3px); }
+}
+
+@keyframes card-in {
+  0% { transform: translateY(26px) rotate(-1.6deg) scale(0.96); opacity: 0; }
+  100% { transform: translateY(0) rotate(0deg) scale(1); opacity: 1; }
+}
+
+@keyframes pulse-ring {
+  0% { box-shadow: var(--shadow), 0 0 0 0 color-mix(in srgb, var(--pink) 70%, transparent); }
+  70% { box-shadow: var(--shadow), 0 0 0 18px color-mix(in srgb, var(--pink) 0%, transparent); }
+  100% { box-shadow: var(--shadow), 0 0 0 0 color-mix(in srgb, var(--pink) 0%, transparent); }
+}
+
+@keyframes marquee-dots {
+  0% { opacity: 0.25; transform: translateY(0); }
+  50% { opacity: 1; transform: translateY(-5px); }
+  100% { opacity: 0.25; transform: translateY(0); }
+}
+
+@keyframes confetti-fall {
+  0% { transform: translate3d(0, 0, 0) rotate(0deg); opacity: 1; }
+  100% { transform: translate3d(var(--dx), 105dvh, 0) rotate(var(--spin)); opacity: 0; }
+}
+
+.anim-in { animation: pop-in var(--normal) var(--ease-back) both; }
+.anim-card { animation: card-in var(--slow) var(--ease-back) both; }
+.anim-shake { animation: shake var(--slow) var(--ease); }
+.anim-pop { animation: score-pop var(--slow) var(--ease-back); }
+.anim-pulse { animation: pulse-ring 1.15s ease-out infinite; }
+
+/* ---------- Marcador ---------- */
+
+.scoreboard {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.score-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 12px;
+  border: var(--stroke) solid var(--ink);
+  border-radius: var(--radius-sm);
+  background: var(--card);
+  box-shadow: var(--shadow-sm);
+  transition:
+    transform var(--normal) var(--ease),
+    box-shadow var(--normal) var(--ease),
+    background var(--normal) var(--ease);
+}
+
+/* El de turno se levanta y se pinta: quien tiene que responder se ve de lejos. */
+.score-tile.is-active {
+  background: var(--tint);
+  color: var(--on-color);
+  transform: translate(-2px, -2px);
+  box-shadow: var(--shadow);
+}
+
+.score-tile.is-stealing {
+  background: var(--pink);
+  color: var(--on-color);
+  animation: pulse-ring 1.15s ease-out infinite;
+}
+
+.score-name {
+  font-family: var(--font-display);
+  font-size: 11px;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  opacity: 0.75;
+}
+
+.score-value {
+  display: inline-block;
+  font-family: var(--font-display);
+  font-size: 30px;
+  line-height: 1;
+}
+
+/* ---------- Cronometro ---------- */
+
+.timer {
+  position: relative;
+  height: 26px;
+  border: var(--stroke) solid var(--ink);
+  border-radius: 999px;
+  background: var(--sunken);
+  overflow: hidden;
+}
+
+.timer-fill {
+  position: absolute;
+  inset: 0;
+  transform-origin: left center;
+  transition: transform 250ms linear, background var(--normal) var(--ease);
+}
+
+.timer-label {
+  position: relative;
+  display: block;
+  text-align: center;
+  font-family: var(--font-display);
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--on-color);
+  mix-blend-mode: normal;
+}
+
+/* ---------- Puntos de carga ---------- */
+
+.dots {
+  display: inline-flex;
+  gap: 5px;
+  align-items: flex-end;
+  height: 12px;
+}
+
+.dots > span {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: currentColor;
+  animation: marquee-dots 0.9s ease-in-out infinite;
+}
+
+/* ---------- Papelitos ---------- */
+
+.confetti {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.confetti > i {
+  position: absolute;
+  top: -30px;
+  border: 2px solid var(--ink);
+  border-radius: 2px;
+  animation-name: confetti-fall;
+  animation-timing-function: ease-in;
+  animation-fill-mode: both;
+}
+
+/* ---------- Inicio ---------- */
+
+.home-hero {
+  padding: 26px 0 8px;
+}
+
+.home-title {
+  display: flex;
+  flex-direction: column;
+  font-family: var(--font-display);
+  font-size: clamp(52px, 17vw, 76px);
+  line-height: 0.86;
+  text-transform: uppercase;
+  letter-spacing: -0.035em;
+}
+
+/* La "a" del medio, rotada y en color, es el gesto de marca de toda la app. */
+.home-title-a {
+  align-self: flex-start;
+  margin: 4px 0;
+  padding: 0 14px;
+  background: var(--lime);
+  color: var(--on-color);
+  border: var(--stroke) solid var(--ink);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow);
+  transform: rotate(-3deg);
+  font-size: 0.5em;
+}
+
+.home-tag {
+  margin-top: 18px;
+  font-size: 17px;
+  line-height: 1.35;
+  color: var(--muted);
+}
+
+.linkish {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.rules {
+  margin: 0;
+  padding-left: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  font-size: 15px;
+  line-height: 1.45;
+}
+
+.rules::marker {
+  font-family: var(--font-display);
+}
+
+/* ---------- Armar partida ---------- */
+
+.section-title {
+  font-size: 15px;
+  letter-spacing: 0.05em;
+}
+
+.player-field {
+  font-family: var(--font-display);
+  font-size: 16px;
+  text-transform: uppercase;
+  border-left-width: 12px;
+  border-left-color: var(--tint);
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.chip-tap {
+  cursor: pointer;
+  transition: transform var(--fast) var(--ease), background var(--fast) var(--ease);
+}
+
+.chip-tap:active {
+  transform: scale(0.93);
+  background: var(--lime);
+}
+
+/* ---------- Pregunta ---------- */
+
+.question-card {
+  border-left-width: 12px;
+  border-left-color: var(--tint, var(--violet));
+  min-height: 150px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  justify-content: center;
+}
+
+.question-meta {
+  flex-wrap: wrap;
+}
+
+.question-text {
+  font-size: clamp(21px, 5.6vw, 27px);
+  line-height: 1.14;
+  text-transform: none;
+  letter-spacing: -0.015em;
+}
+
+.answer-text {
+  font-family: var(--font-display);
+  font-size: 24px;
+  line-height: 1.1;
+}
+
+.reveal-box {
+  width: 100%;
+  padding: 16px;
+  border: var(--stroke) dashed var(--ink);
+  border-radius: var(--radius-sm);
+  background: var(--sunken);
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--fast) var(--ease), transform var(--fast) var(--ease);
+}
+
+.reveal-box:active {
+  transform: scale(0.985);
+}
+
+.reveal-box.is-open {
+  border-style: solid;
+  background: var(--card);
+  box-shadow: var(--shadow-sm);
+  cursor: default;
+}
+
+.steal-call {
+  font-family: var(--font-display);
+  font-size: 20px;
+  text-transform: uppercase;
+}
+
+/* ---------- Resultado de la ronda ---------- */
+
+.verdict {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: center;
+  padding: 18px 16px;
+  border: var(--stroke) solid var(--ink);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  color: var(--on-color);
+  text-align: center;
+}
+
+.verdict-correcta { background: var(--green); }
+.verdict-parcial { background: var(--orange); }
+.verdict-incorrecta { background: var(--red); }
+.verdict-robo { background: var(--pink); }
+
+.verdict-word {
+  font-family: var(--font-display);
+  font-size: 30px;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.verdict-points {
+  font-family: var(--font-display);
+  font-size: 13px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  opacity: 0.8;
+}
+
+/* ---------- Aviso flotante ---------- */
+
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: calc(env(safe-area-inset-bottom) + 20px);
+  z-index: 50;
+  transform: translateX(-50%);
+  width: min(440px, calc(100vw - 32px));
+  padding: 13px 16px;
+  border: var(--stroke) solid var(--ink);
+  border-radius: var(--radius-sm);
+  background: var(--lime);
+  color: var(--on-color);
+  box-shadow: var(--shadow);
+  font-size: 14px;
+  text-align: center;
+}
+
+/* ---------- Final ---------- */
+
+.winner-title {
+  font-size: clamp(34px, 10vw, 46px);
+  line-height: 0.95;
+}
+
+.result-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px;
+  border: var(--stroke) solid var(--ink);
+  border-radius: var(--radius);
+  background: var(--card);
+  box-shadow: var(--shadow-sm);
+  animation: pop-in var(--slow) var(--ease-back) both;
+}
+
+.result-row.is-winner {
+  background: var(--tint);
+  color: var(--on-color);
+  box-shadow: var(--shadow-lg);
+  transform: rotate(-0.7deg);
+}
+
+.result-pos {
+  flex: none;
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border: 2px solid var(--ink);
+  border-radius: 999px;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-display);
+  font-size: 15px;
+}
+
+.result-name {
+  font-family: var(--font-display);
+  font-size: 19px;
+  text-transform: uppercase;
+}
+
+.result-score {
+  font-family: var(--font-display);
+  font-size: 34px;
+  line-height: 1;
+}
+
+.mono {
+  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+  font-size: 12px;
+  word-break: break-all;
+}
+
+/* Tarjeta de la portada: muestra pedidos de ejemplo, que es la unica forma
+   honesta de explicar que la app no tiene categorias cerradas. */
+.prompt-demo {
+  width: 100%;
+  padding: 18px 16px;
+  border: var(--stroke) dashed var(--ink);
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--card) 55%, transparent);
+  transform: rotate(-1deg);
+}
+
+.prompt-demo-text {
+  margin-top: 6px;
+  font-size: 19px;
+  line-height: 1.3;
+}

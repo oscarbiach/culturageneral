@@ -1,0 +1,19 @@
+{
+  "name": "Mano a Mano",
+  "short_name": "Mano a Mano",
+  "description": "Duelo de preguntas y respuestas con preguntas hechas a medida por IA.",
+  "start_url": ".",
+  "scope": ".",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#fff3dd",
+  "theme_color": "#fff3dd",
+  "lang": "es-AR",
+  "categories": ["games", "entertainment"],
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml" },
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

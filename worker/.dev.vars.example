@@ -1,0 +1,11 @@
+# Copiá este archivo a worker/.dev.vars para probar en local con `npm run dev`.
+# .dev.vars esta en .gitignore: nunca subas una key al repo.
+
+GEMINI_API_KEY=pega-tu-key-aca
+# ANTHROPIC_API_KEY=
+# OPENAI_API_KEY=
+# GROQ_API_KEY=
+# OPENROUTER_API_KEY=
+
+# Opcional: si lo ponés, la app tiene que mandarlo en Ajustes.
+# ACCESS_CODE=elcodigodelgrupo

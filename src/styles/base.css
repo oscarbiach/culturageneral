@@ -1,0 +1,173 @@
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-size: 16px;
+  line-height: 1.4;
+  -webkit-font-smoothing: antialiased;
+  /* En el telefono la app se toca todo el tiempo: sin resaltados ni zoom por
+     doble tap, que la hacen sentir una pagina web en vez de una app. */
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  overscroll-behavior-y: none;
+}
+
+/* Trama sutil de fondo: le da textura arcade sin robarle protagonismo a nada. */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  opacity: 0.5;
+  background-image:
+    radial-gradient(circle at 1px 1px, color-mix(in srgb, var(--ink) 18%, transparent) 1px, transparent 0);
+  background-size: 22px 22px;
+}
+
+h1,
+h2,
+h3 {
+  font-family: var(--font-display);
+  font-weight: 400;
+  line-height: 1.02;
+  letter-spacing: -0.02em;
+  margin: 0;
+  text-transform: uppercase;
+}
+
+p {
+  margin: 0;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+  color: inherit;
+}
+
+:focus-visible {
+  outline: var(--stroke) solid var(--violet);
+  outline-offset: 3px;
+}
+
+/* La app entera vive en una columna angosta, centrada tambien en escritorio.
+   El alto usa dvh para que la barra del navegador movil no coma el ultimo boton. */
+.app {
+  position: relative;
+  width: 100%;
+  max-width: 520px;
+  min-height: 100dvh;
+  margin-inline: auto;
+  display: flex;
+  flex-direction: column;
+  padding:
+    calc(env(safe-area-inset-top) + 14px)
+    calc(env(safe-area-inset-right) + 16px)
+    calc(env(safe-area-inset-bottom) + 16px)
+    calc(env(safe-area-inset-left) + 16px);
+}
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+/* La pantalla activa se estira para ocupar el alto libre; sin esto, `.push` no
+   tiene contra que empujar y todo queda pegado arriba con un hueco abajo. */
+.app > .stack {
+  flex: 1;
+}
+
+/* Zona elastica: en el telefono deja la pregunta centrada en el aire que sobra
+   y las acciones al alcance del pulgar. */
+.flex-space {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 14px;
+  min-height: 0;
+}
+
+.stack-sm {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* Para pares de botones: si una etiqueta parte en dos lineas, el otro boton
+   crece igual y no quedan escalonados. */
+.row-stretch {
+  align-items: stretch;
+}
+
+.spread {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.grow {
+  flex: 1;
+  min-width: 0;
+}
+
+.center {
+  text-align: center;
+}
+
+.muted {
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.label {
+  font-family: var(--font-display);
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.push {
+  margin-top: auto;
+}
+
+.truncate {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

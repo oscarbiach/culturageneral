@@ -1,0 +1,20 @@
+{
+  "name": "mano-a-mano-worker",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Proxy de IA para Mano a Mano. Guarda la API key para que la app estatica no tenga que hacerlo.",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.124.0",
+    "zod": "^4.5.4"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250109.0",
+    "typescript": "^5.6.3",
+    "wrangler": "^3.99.0"
+  }
+}

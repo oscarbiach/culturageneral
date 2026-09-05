@@ -1,0 +1,61 @@
+name: Publicar en GitHub Pages
+
+on:
+  push:
+    branches:
+      - main
+      - claude/trivia-game-ai-mobile-z1sg34
+  workflow_dispatch:
+
+# Un solo deploy a la vez; si se empujan dos commits seguidos, gana el ultimo.
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Revisar tipos y correr los tests
+        run: |
+          npx tsc -b
+          npm test
+
+      - name: Compilar
+        env:
+          # El repo se publica en /<nombre-del-repo>/, asi que el bundle tiene que
+          # buscar sus assets ahi.
+          APP_BASE: /${{ github.event.repository.name }}/
+          # La URL del Worker se hornea en el build: asi los jugadores abren el
+          # link y juegan sin tocar Ajustes. Se configura en
+          # Settings > Secrets and variables > Actions > Variables.
+          VITE_PROXY_URL: ${{ vars.PROXY_URL }}
+        run: npm run build
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

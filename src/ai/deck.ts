@@ -17,8 +17,16 @@ import type { AiClient } from './transport';
 const PER_REQUEST = Math.min(12, LIMITS.maxCount);
 /** Y uno mas chico que esto no vale el viaje: mejor sumarlo a otro. */
 const MIN_PER_REQUEST = 3;
-/** Cuantos pedidos se disparan a la vez al preparar el mazo. */
-const PARALLEL = 3;
+/**
+ * Cuantos pedidos salen juntos al preparar el mazo.
+ *
+ * Dos y no mas: cada tanda son en realidad dos llamadas (generar y revisar), y
+ * los cupos gratuitos se miden por minuto. Tres tandas eran seis pedidos en el
+ * mismo segundo, que es exactamente como se choca contra el limite.
+ */
+const PARALLEL = 2;
+/** Separacion entre pedidos simultaneos, para no golpear todos en el mismo instante. */
+const STAGGER_MS = 400;
 /** Techo de la precarga inicial: mas que esto ya es demasiada espera de entrada. */
 const PRELOAD_CAP = 24;
 /** Red de contencion: si igual se vacia, rellena por atras sin frenar el juego. */
@@ -88,7 +96,16 @@ export class Deck {
       const missing = goal - this.queue.length;
       if (missing <= 0) return;
       const before = this.queue.length;
-      await this.fill(missing, round === 0 ? PARALLEL : 1);
+
+      try {
+        await this.fill(missing, round === 0 ? PARALLEL : 1);
+      } catch (error) {
+        // Con preguntas en la mano se arranca igual: mejor una partida de doce
+        // que un cartel de error. Solo si el mazo quedo vacio se avisa.
+        if (this.queue.length) return;
+        throw error;
+      }
+
       // Si una vuelta no sumo nada, insistir es perder el tiempo del jugador.
       if (this.queue.length === before) return;
     }
@@ -156,7 +173,12 @@ export class Deck {
     const generation = this.generation;
     const run = (async () => {
       const sizes = splitEvenly(count, parallel);
-      const rounds = await Promise.allSettled(sizes.map((size) => this.requestBatch(size)));
+      const rounds = await Promise.allSettled(
+        sizes.map(async (size, index) => {
+          if (index > 0) await new Promise((resolve) => setTimeout(resolve, index * STAGGER_MS));
+          return this.requestBatch(size);
+        }),
+      );
       if (generation !== this.generation) return;
 
       for (const round of rounds) {

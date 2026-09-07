@@ -38,7 +38,8 @@ function humanError(error: unknown): string {
       case 'unauthorized':
         return 'La API key no sirve o venció. Revisala en Ajustes.';
       case 'rate_limited':
-        return 'El proveedor te frenó por exceso de pedidos. Esperá un minuto y reintentá.';
+        // El proveedor suele decir cuantos segundos faltan; el mensaje ya lo trae.
+        return error.message;
       case 'overloaded':
       case 'model_missing':
         return error.message;

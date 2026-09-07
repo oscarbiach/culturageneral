@@ -121,6 +121,8 @@ export class AiError extends Error {
      * el mismo codigo si nos guiaramos solo por ahi.
      */
     readonly retryable = false,
+    /** Cuanto pidio esperar el proveedor, si lo dijo. */
+    readonly retryAfterMs?: number,
   ) {
     super(message);
     this.name = 'AiError';
@@ -149,7 +151,19 @@ function httpError(status: number, body: string): AiError {
     return new AiError(`El proveedor rechazó la API key (${status}). ${detail}`, 'unauthorized');
   }
   if (status === 429) {
-    return new AiError('Te pasaste del límite del proveedor. Esperá un rato.', 'rate_limited');
+    // Google y compania suelen decir cuanto falta. Lo usamos para avisar, no
+    // para reintentar: esperar medio minuto con la pantalla de carga puesta, y
+    // encima fallar igual, es peor que decir la verdad y ofrecer el boton.
+    const seconds = Number(detail.match(/retryDelay["\s:]+(\d+)/)?.[1]);
+    const wait = Number.isFinite(seconds) && seconds > 0 ? Math.min(seconds, 90) : 0;
+    return new AiError(
+      wait
+        ? `Llegaste al cupo por minuto de la capa gratuita. Esperá ${wait} segundos y reintentá.`
+        : 'Llegaste al cupo por minuto de la capa gratuita. Esperá un minuto y reintentá.',
+      'rate_limited',
+      false,
+      wait ? wait * 1000 : undefined,
+    );
   }
   if (status === 404) {
     return new AiError(
@@ -217,8 +231,10 @@ async function withRetry<T>(run: () => Promise<T>, attempts = 3): Promise<T> {
     } catch (error) {
       const worthRetrying = error instanceof AiError && error.retryable;
       if (!worthRetrying || attempt >= attempts - 1) throw error;
-      // Espera creciente con un pellizco de azar, para no reintentar todos a la vez.
-      await sleep(700 * 2 ** attempt + Math.random() * 400);
+      // Si el proveedor dijo cuanto esperar, se le hace caso; si no, espera
+      // creciente con un pellizco de azar para no reintentar todos a la vez.
+      const wait = error.retryAfterMs ?? 700 * 2 ** attempt + Math.random() * 400;
+      await sleep(wait);
     }
   }
 }

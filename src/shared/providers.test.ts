@@ -319,3 +319,33 @@ describe('techos de tiempo', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   }, 20_000);
 });
+
+describe('cupo de la capa gratuita', () => {
+  it('avisa cuántos segundos esperar cuando el proveedor lo dice', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              error: { code: 429, status: 'RESOURCE_EXHAUSTED' },
+              details: [{ retryDelay: '38s' }],
+            }),
+            { status: 429 },
+          ),
+      ),
+    );
+
+    const error = (await generateQuestions(cfg, params).catch((e) => e)) as AiError;
+    expect(error.code).toBe('rate_limited');
+    expect(error.message).toContain('38 segundos');
+  });
+
+  it('no reintenta: esperar medio minuto con la pantalla puesta es peor que avisar', async () => {
+    const fetchMock = vi.fn(async () => new Response('{}', { status: 429 }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(generateQuestions(cfg, params)).rejects.toMatchObject({ code: 'rate_limited' });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});

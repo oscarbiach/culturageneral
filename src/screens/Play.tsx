@@ -38,6 +38,8 @@ function humanError(error: unknown): string {
         return 'La API key no sirve o venció. Revisala en Ajustes.';
       case 'rate_limited':
         return 'El proveedor te frenó por exceso de pedidos. Esperá un minuto y reintentá.';
+      case 'overloaded':
+        return error.message;
       case 'not_configured':
         return 'Falta configurar la conexión con la IA, en Ajustes.';
       case 'refusal':

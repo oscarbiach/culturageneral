@@ -80,6 +80,7 @@ export interface AiErrorBody {
     | 'bad_request'
     | 'unauthorized'
     | 'rate_limited'
+    | 'overloaded'
     | 'provider_error'
     | 'refusal'
     | 'bad_output'

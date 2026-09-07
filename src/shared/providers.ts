@@ -91,10 +91,17 @@ export class AiError extends Error {
     readonly code:
       | 'unauthorized'
       | 'rate_limited'
+      | 'overloaded'
       | 'provider_error'
       | 'refusal'
       | 'bad_output'
       | 'not_configured',
+    /**
+     * Si esto se arregla solo esperando un momento. Va aparte del codigo a
+     * proposito: un 503 se reintenta y un 400 no, y los dos podrian caer bajo
+     * el mismo codigo si nos guiaramos solo por ahi.
+     */
+    readonly retryable = false,
   ) {
     super(message);
     this.name = 'AiError';
@@ -114,6 +121,9 @@ function redactKeys(text: string): string {
     .replace(/\bAIza[A-Za-z0-9_-]{10,}/g, '***');
 }
 
+/** Los que se van solos si esperás un poco. 529 es el "overloaded" de Anthropic. */
+const TRANSIENT = new Set([408, 500, 502, 503, 504, 529]);
+
 function httpError(status: number, body: string): AiError {
   const detail = redactKeys(body.slice(0, 300));
   if (status === 401 || status === 403) {
@@ -122,7 +132,50 @@ function httpError(status: number, body: string): AiError {
   if (status === 429) {
     return new AiError('Te pasaste del límite del proveedor. Esperá un rato.', 'rate_limited');
   }
+  if (TRANSIENT.has(status)) {
+    // El cuerpo crudo del proveedor no le dice nada a nadie en una juntada.
+    return new AiError(
+      'El modelo está saturado en este momento. Probá de nuevo en un rato, o cambiá de modelo en Ajustes: los recién salidos son los que más se saturan.',
+      'overloaded',
+      true,
+    );
+  }
   return new AiError(`El proveedor respondió ${status}. ${detail}`, 'provider_error');
+}
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** fetch, pero con el corte de red convertido en algo que la UI sabe explicar. */
+async function request(url: string, init: RequestInit): Promise<Response> {
+  try {
+    return await fetch(url, init);
+  } catch {
+    throw new AiError(
+      'No se pudo conectar con el proveedor. Fijate la conexión.',
+      'provider_error',
+      true,
+    );
+  }
+}
+
+/**
+ * Reintenta lo que se arregla solo: saturación del modelo y cortes de red.
+ *
+ * Que el jugador tenga que tocar "reintentar" tres veces en medio de una
+ * partida no es una opción, y una espera de dos segundos no se nota cuando la
+ * alternativa es que se corte el juego.
+ */
+async function withRetry<T>(run: () => Promise<T>, attempts = 3): Promise<T> {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      return await run();
+    } catch (error) {
+      const worthRetrying = error instanceof AiError && error.retryable;
+      if (!worthRetrying || attempt >= attempts - 1) throw error;
+      // Espera creciente con un pellizco de azar, para no reintentar todos a la vez.
+      await sleep(700 * 2 ** attempt + Math.random() * 400);
+    }
+  }
 }
 
 /**
@@ -200,7 +253,7 @@ async function callGemini(cfg: ProviderConfig, call: Call): Promise<unknown> {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
     cfg.model,
   )}:generateContent`;
-  const response = await fetch(url, {
+  const response = await request(url, {
     method: 'POST',
     headers: { 'content-type': 'application/json', 'x-goog-api-key': cfg.apiKey },
     body: JSON.stringify({
@@ -250,7 +303,7 @@ async function callOpenAiCompatible(cfg: ProviderConfig, call: Call): Promise<un
   };
 
   const send = async (payload: Record<string, unknown>) =>
-    fetch(`${base}/chat/completions`, {
+    request(`${base}/chat/completions`, {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
@@ -287,9 +340,11 @@ async function callOpenAiCompatible(cfg: ProviderConfig, call: Call): Promise<un
 async function dispatch(cfg: ProviderConfig, call: Call): Promise<unknown> {
   if (!cfg.apiKey) throw new AiError('Falta la API key.', 'not_configured');
   if (!cfg.model) throw new AiError('Falta elegir el modelo.', 'not_configured');
-  if (cfg.provider === 'anthropic') return callAnthropic(cfg, call);
-  if (cfg.provider === 'gemini') return callGemini(cfg, call);
-  return callOpenAiCompatible(cfg, call);
+  return withRetry(() => {
+    if (cfg.provider === 'anthropic') return callAnthropic(cfg, call);
+    if (cfg.provider === 'gemini') return callGemini(cfg, call);
+    return callOpenAiCompatible(cfg, call);
+  });
 }
 
 export async function generateQuestions(
@@ -347,7 +402,7 @@ export async function listModels(cfg: Omit<ProviderConfig, 'model'>): Promise<st
   }
 
   if (cfg.provider === 'gemini') {
-    const response = await fetch(
+    const response = await request(
       'https://generativelanguage.googleapis.com/v1beta/models?pageSize=200',
       { headers: { 'x-goog-api-key': cfg.apiKey } },
     );
@@ -363,7 +418,7 @@ export async function listModels(cfg: Omit<ProviderConfig, 'model'>): Promise<st
 
   const base = OPENAI_COMPATIBLE[cfg.provider];
   if (!base) throw new AiError(`Proveedor desconocido: ${cfg.provider}.`, 'not_configured');
-  const response = await fetch(`${base}/models`, {
+  const response = await request(`${base}/models`, {
     headers: { authorization: `Bearer ${cfg.apiKey}` },
   });
   if (!response.ok) throw httpError(response.status, await response.text());

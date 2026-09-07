@@ -200,7 +200,7 @@ export default {
     } catch (error) {
       if (error instanceof AiError) {
         const status =
-          error.code === 'unauthorized' ? 502 : error.code === 'rate_limited' ? 429 : 502;
+          error.code === 'rate_limited' ? 429 : error.code === 'overloaded' ? 503 : 502;
         // La key nunca puede filtrarse en el mensaje que ve el jugador: los
         // proveedores a veces la repiten en el cuerpo del error.
         return fail(redactKeys(error.message), error.code, status, cors);

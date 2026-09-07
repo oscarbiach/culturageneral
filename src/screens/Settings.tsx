@@ -45,7 +45,10 @@ export function SettingsScreen({ settings, onPatch, onBack }: Props) {
   const test = async () => {
     setCheck({ state: 'running' });
     try {
-      const result = await createAiClient(settings).generate({
+      const result = await createAiClient(
+        () => settings,
+        (model) => onPatch({ model }),
+      ).generate({
         brief: 'Una pregunta cualquiera de cultura general, bien facil.',
         count: 1,
         difficulty: 'facil',

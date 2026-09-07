@@ -81,21 +81,33 @@ async function viaProxy<T>(
   return (await response.json()) as T;
 }
 
-export function createAiClient(settings: AppSettings): AiClient {
-  if (settings.connection === 'proxy') {
+/**
+ * `getSettings` es una funcion y no un objeto a proposito: el cliente sobrevive a
+ * toda la partida, y si en el medio la app cambia de modelo por saturacion, el
+ * proximo pedido tiene que salir ya con el nuevo.
+ */
+export function createAiClient(
+  getSettings: () => AppSettings,
+  onModelSwitch?: (model: string) => void,
+): AiClient {
+  const config = () => {
+    const settings = getSettings();
     return {
-      generate: (params, signal) => viaProxy<GenerateResult>(settings, 'generate', params, signal),
-      judge: (params, signal) => viaProxy<JudgeResult>(settings, 'judge', params, signal),
+      provider: settings.provider,
+      model: settings.model,
+      apiKey: settings.apiKey,
+      onModelSwitch,
     };
-  }
-
-  const cfg = {
-    provider: settings.provider,
-    model: settings.model,
-    apiKey: settings.apiKey,
   };
+
   return {
-    generate: (params) => generateQuestions(cfg, params),
-    judge: (params) => judgeAnswer(cfg, params),
+    generate: (params, signal) =>
+      getSettings().connection === 'proxy'
+        ? viaProxy<GenerateResult>(getSettings(), 'generate', params, signal)
+        : generateQuestions(config(), params),
+    judge: (params, signal) =>
+      getSettings().connection === 'proxy'
+        ? viaProxy<JudgeResult>(getSettings(), 'judge', params, signal)
+        : judgeAnswer(config(), params),
   };
 }

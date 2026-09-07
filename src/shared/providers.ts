@@ -30,6 +30,12 @@ export interface ProviderConfig {
   provider: ProviderId;
   model: string;
   apiKey: string;
+  /**
+   * Se llama cuando hubo que cambiar de modelo porque el elegido estaba
+   * saturado. Quien lo reciba deberia guardarlo: la proxima partida arranca por
+   * el que anduvo y no vuelve a chocar contra la misma pared.
+   */
+  onModelSwitch?: (model: string) => void;
 }
 
 export interface ProviderMeta {
@@ -46,7 +52,10 @@ export const PROVIDERS: ProviderMeta[] = [
   {
     id: 'gemini',
     label: 'Google Gemini',
-    defaultModel: 'gemini-3.8-flash',
+    // A proposito NO el mas nuevo: los recien lanzados son los que se saturan,
+    // sobre todo en la capa gratuita, durante las primeras semanas. Si este no
+    // existiera, la busqueda de hermanos encuentra uno vivo y lo recuerda.
+    defaultModel: 'gemini-2.5-flash',
     keysUrl: 'https://aistudio.google.com/apikey',
     hint: 'Tiene capa gratuita. Es el más fácil para arrancar.',
   },
@@ -92,6 +101,7 @@ export class AiError extends Error {
       | 'unauthorized'
       | 'rate_limited'
       | 'overloaded'
+      | 'model_missing'
       | 'provider_error'
       | 'refusal'
       | 'bad_output'
@@ -131,6 +141,12 @@ function httpError(status: number, body: string): AiError {
   }
   if (status === 429) {
     return new AiError('Te pasaste del límite del proveedor. Esperá un rato.', 'rate_limited');
+  }
+  if (status === 404) {
+    return new AiError(
+      'Ese modelo no existe o tu key no lo tiene habilitado.',
+      'model_missing',
+    );
   }
   if (TRANSIENT.has(status)) {
     // El cuerpo crudo del proveedor no le dice nada a nadie en una juntada.
@@ -337,14 +353,112 @@ async function callOpenAiCompatible(cfg: ProviderConfig, call: Call): Promise<un
   return extractJson(text);
 }
 
+/**
+ * Descompone el nombre de un modelo en "de que familia es" y "que version es".
+ *
+ *   gemini-3.8-flash        -> { words: 'gemini-flash', version: 3.8 }
+ *   google/gemini-3.7-flash -> { words: 'gemini-flash', version: 3.7 }
+ *   claude-opus-4-8         -> { words: 'claude-opus',  version: 4 }
+ *
+ * Sirve para encontrar el pariente mas cercano de un modelo saturado sin tener
+ * ninguna lista escrita a mano, que es lo que se pudre con cada lanzamiento.
+ */
+export function modelShape(id: string): { words: string; version: number } {
+  const bare = id.includes('/') ? (id.split('/').pop() ?? id) : id;
+  const tokens = bare.toLowerCase().split(/[-_]/).filter(Boolean);
+  const numeric = tokens.filter((t) => /^\d/.test(t));
+  const words = tokens.filter((t) => !/^\d/.test(t));
+  return {
+    words: words.join('-'),
+    version: numeric.length ? Number.parseFloat(numeric[0]) || 0 : 0,
+  };
+}
+
+/** La lista de modelos por key es estable durante una partida; no la pedimos dos veces. */
+const modelListCache = new Map<string, string[]>();
+
+/** Vacía la caché de listas de modelos. Existe para que los tests no se pisen. */
+export function resetModelCache(): void {
+  modelListCache.clear();
+}
+
+/**
+ * Hermanos del modelo pedido, del mas nuevo al mas viejo.
+ *
+ * Salen de la lista que devuelve el propio proveedor, no de una constante en el
+ * codigo: asi la app sigue encontrando alternativas meses despues, sin que nadie
+ * la actualice.
+ */
+async function siblingModels(cfg: ProviderConfig, tried: Set<string>): Promise<string[]> {
+  const cacheKey = `${cfg.provider}:${cfg.apiKey.slice(-8)}`;
+  let listing = modelListCache.get(cacheKey);
+  if (!listing) {
+    // Un listado fallido NO se cachea: si se cae una vez por un corte de red,
+    // guardarlo dejaria a la app sin alternativas por el resto de la sesión,
+    // que es justo cuando mas las necesita.
+    listing = await listModels(cfg).catch(() => [] as string[]);
+    if (listing.length) modelListCache.set(cacheKey, listing);
+  }
+
+  const wanted = modelShape(cfg.model);
+  const family = listing.filter(
+    (id) => !tried.has(id) && modelShape(id).words === wanted.words,
+  );
+
+  // Bajar de generacion primero, empezando por la mas cercana. Subir al mas
+  // nuevo seria correr hacia el que justamente esta saturado.
+  const older = family
+    .filter((id) => modelShape(id).version < wanted.version)
+    .sort((a, b) => modelShape(b).version - modelShape(a).version);
+  const newer = family
+    .filter((id) => modelShape(id).version >= wanted.version)
+    .sort((a, b) => modelShape(a).version - modelShape(b).version);
+
+  return [...older, ...newer].slice(0, 3);
+}
+
+/**
+ * Cambiar de modelo solo sirve si el problema es del modelo. Una key rechazada o
+ * una cuota agotada fallan igual en todos, y probar cuatro seria hacer esperar
+ * al jugador cuatro veces para nada.
+ */
+function worthSwitching(error: unknown): boolean {
+  return error instanceof AiError && (error.code === 'overloaded' || error.code === 'model_missing');
+}
+
+function callOne(cfg: ProviderConfig, call: Call): Promise<unknown> {
+  if (cfg.provider === 'anthropic') return callAnthropic(cfg, call);
+  if (cfg.provider === 'gemini') return callGemini(cfg, call);
+  return callOpenAiCompatible(cfg, call);
+}
+
 async function dispatch(cfg: ProviderConfig, call: Call): Promise<unknown> {
   if (!cfg.apiKey) throw new AiError('Falta la API key.', 'not_configured');
   if (!cfg.model) throw new AiError('Falta elegir el modelo.', 'not_configured');
-  return withRetry(() => {
-    if (cfg.provider === 'anthropic') return callAnthropic(cfg, call);
-    if (cfg.provider === 'gemini') return callGemini(cfg, call);
-    return callOpenAiCompatible(cfg, call);
-  });
+
+  const tried = new Set<string>([cfg.model]);
+  let lastError: unknown;
+
+  try {
+    return await withRetry(() => callOne(cfg, call));
+  } catch (error) {
+    if (!worthSwitching(error)) throw error;
+    lastError = error;
+  }
+
+  for (const model of await siblingModels(cfg, tried)) {
+    tried.add(model);
+    try {
+      const result = await withRetry(() => callOne({ ...cfg, model }, call), 2);
+      cfg.onModelSwitch?.(model);
+      return result;
+    } catch (error) {
+      if (!worthSwitching(error)) throw error;
+      lastError = error;
+    }
+  }
+
+  throw lastError;
 }
 
 export async function generateQuestions(

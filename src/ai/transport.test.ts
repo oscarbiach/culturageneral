@@ -46,7 +46,7 @@ describe('configProblem', () => {
 
 describe('cliente en modo servidor del grupo', () => {
   it('ni sale a la red si la direccion no sirve', async () => {
-    const client = createAiClient({ ...base, connection: 'proxy', proxyUrl: '' });
+    const client = createAiClient(() => ({ ...base, connection: 'proxy', proxyUrl: '' }));
     await expect(
       client.generate({ brief: 'x', count: 1, difficulty: 'normal', avoid: [], feedback: [] }),
     ).rejects.toThrow(AiError);

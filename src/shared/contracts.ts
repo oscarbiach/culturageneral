@@ -81,6 +81,7 @@ export interface AiErrorBody {
     | 'unauthorized'
     | 'rate_limited'
     | 'overloaded'
+    | 'model_missing'
     | 'provider_error'
     | 'refusal'
     | 'bad_output'

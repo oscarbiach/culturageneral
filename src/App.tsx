@@ -59,6 +59,7 @@ export default function App() {
         return (
           <PlayScreen
             settings={settings}
+            onPatch={patch}
             players={route.players}
             game={route.game}
             onExit={goHome}

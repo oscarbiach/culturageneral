@@ -15,6 +15,7 @@ import { ResultsScreen } from './Results';
 
 interface Props {
   settings: AppSettings;
+  onPatch: (changes: Partial<AppSettings>) => void;
   players: Player[];
   game: GameSettings;
   onExit: () => void;
@@ -39,6 +40,7 @@ function humanError(error: unknown): string {
       case 'rate_limited':
         return 'El proveedor te frenó por exceso de pedidos. Esperá un minuto y reintentá.';
       case 'overloaded':
+      case 'model_missing':
         return error.message;
       case 'not_configured':
         return 'Falta configurar la conexión con la IA, en Ajustes.';
@@ -53,7 +55,7 @@ function humanError(error: unknown): string {
   return (error as Error)?.message ?? 'Algo salió mal.';
 }
 
-export function PlayScreen({ settings, players, game, onExit, onRematch }: Props) {
+export function PlayScreen({ settings, onPatch, players, game, onExit, onRematch }: Props) {
   const [state, dispatch] = useReducer(reduce, undefined, emptyState);
   const [error, setError] = useState<string | null>(null);
   const [retry, setRetry] = useState(0);
@@ -64,7 +66,25 @@ export function PlayScreen({ settings, players, game, onExit, onRematch }: Props
   const [toast, setToast] = useState<string | null>(null);
   const [leaving, setLeaving] = useState(false);
 
-  const client = useMemo(() => createAiClient(settings), [settings]);
+  // El cliente lee los ajustes por referencia, asi no se recrea en cada cambio y
+  // el mazo puede quedarse con el mismo durante toda la partida.
+  const settingsRef = useRef(settings);
+  settingsRef.current = settings;
+
+  const noteModelSwitch = useCallback(
+    (model: string) => {
+      onPatch({ model });
+      setToast(`El modelo estaba saturado. Seguimos con ${model}.`);
+      window.setTimeout(() => setToast(null), 3600);
+    },
+    [onPatch],
+  );
+
+  const client = useMemo(
+    () => createAiClient(() => settingsRef.current, noteModelSwitch),
+    [noteModelSwitch],
+  );
+
   const deck = useRef<Deck | null>(null);
   if (!deck.current) {
     deck.current = new Deck(client, { brief: game.brief, difficulty: game.difficulty });

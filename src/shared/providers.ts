@@ -220,6 +220,13 @@ interface Call {
   maxTokens: number;
 }
 
+/**
+ * Modelos que rechazaron el ajuste de "pensar". No todas las generaciones de
+ * Gemini aceptan el mismo campo, y no queremos pagar un viaje extra por cada
+ * respuesta: se aprende una vez por sesion.
+ */
+const noThinkingConfig = new Set<string>();
+
 async function callAnthropic(cfg: ProviderConfig, call: Call): Promise<unknown> {
   // El SDK oficial se carga en demanda: en el telefono no queremos pagar el peso
   // del bundle si el jugador usa otro proveedor.
@@ -269,20 +276,42 @@ async function callGemini(cfg: ProviderConfig, call: Call): Promise<unknown> {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
     cfg.model,
   )}:generateContent`;
-  const response = await request(url, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', 'x-goog-api-key': cfg.apiKey },
-    body: JSON.stringify({
-      systemInstruction: { parts: [{ text: call.system }] },
-      contents: [{ role: 'user', parts: [{ text: call.user }] }],
-      generationConfig: {
-        responseMimeType: 'application/json',
-        responseSchema: toGeminiSchema(call.schema),
-        maxOutputTokens: call.maxTokens,
-        temperature: call.heavy ? 1 : 0,
-      },
-    }),
+
+  const body = (withThinking: boolean) => ({
+    systemInstruction: { parts: [{ text: call.system }] },
+    contents: [{ role: 'user', parts: [{ text: call.user }] }],
+    generationConfig: {
+      responseMimeType: 'application/json',
+      responseSchema: toGeminiSchema(call.schema),
+      maxOutputTokens: call.maxTokens,
+      temperature: call.heavy ? 1 : 0,
+      // Juzgar una respuesta no necesita que el modelo razone largo, y esos
+      // segundos se sienten con el telefono en el medio de la mesa.
+      ...(withThinking ? { thinkingConfig: { thinkingLevel: 'low' } } : {}),
+    },
   });
+
+  const send = (withThinking: boolean) =>
+    request(url, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-goog-api-key': cfg.apiKey },
+      body: JSON.stringify(body(withThinking)),
+    });
+
+  const tune = !call.heavy && !noThinkingConfig.has(cfg.model);
+  let response = await send(tune);
+
+  // Las generaciones viejas de Gemini no conocen ese campo. Lo anotamos para no
+  // volver a pagar el viaje de mas en el resto de la partida.
+  if (tune && response.status === 400) {
+    const detail = await response.text();
+    if (/thinking/i.test(detail)) {
+      noThinkingConfig.add(cfg.model);
+      response = await send(false);
+    } else {
+      throw httpError(400, detail);
+    }
+  }
 
   if (!response.ok) throw httpError(response.status, await response.text());
   const data = (await response.json()) as {

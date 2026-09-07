@@ -16,6 +16,7 @@ import {
   type JudgeResult,
 } from '../shared/contracts';
 import { AiError, generateQuestions, judgeAnswer } from '../shared/providers';
+import { quickJudge } from '../shared/quick-judge';
 import { isProxyUrlUsable, type AppSettings } from '../state/settings';
 
 export interface AiClient {
@@ -105,9 +106,15 @@ export function createAiClient(
       getSettings().connection === 'proxy'
         ? viaProxy<GenerateResult>(getSettings(), 'generate', params, signal)
         : generateQuestions(config(), params),
-    judge: (params, signal) =>
-      getSettings().connection === 'proxy'
+    judge: async (params, signal) => {
+      // Antes de salir a la red: la mayoria de las respuestas de una trivia son
+      // exactas o casi, y hacer esperar a la mesa por eso no tiene sentido.
+      const obvious = quickJudge(params);
+      if (obvious) return obvious;
+
+      return getSettings().connection === 'proxy'
         ? viaProxy<JudgeResult>(getSettings(), 'judge', params, signal)
-        : judgeAnswer(config(), params),
+        : judgeAnswer(config(), params);
+    },
   };
 }

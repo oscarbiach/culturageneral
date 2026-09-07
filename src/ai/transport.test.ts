@@ -1,9 +1,11 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createAiClient } from './transport';
 import { configProblem, defaultSettings, isProxyUrlUsable } from '../state/settings';
 import { AiError } from '../shared/providers';
 
 const base = defaultSettings();
+
+afterEach(() => vi.unstubAllGlobals());
 
 describe('direccion del servidor del grupo', () => {
   it('acepta una URL completa', () => {
@@ -53,5 +55,60 @@ describe('cliente en modo servidor del grupo', () => {
     await expect(
       client.judge({ question: 'q', answer: 'a', accept: [], given: 'g' }),
     ).rejects.toMatchObject({ code: 'not_configured' });
+  });
+});
+
+describe('el arbitro no molesta a la IA cuando no hace falta', () => {
+  const settings = { ...base, connection: 'directa' as const, apiKey: 'k', model: 'm' };
+  const pregunta = {
+    question: '¿Qué arquero atajó dos penales en la final del Mundial 2022?',
+    answer: 'Emiliano Martínez',
+    accept: ['Dibu'],
+  };
+
+  it('una respuesta exacta se resuelve sin tocar la red', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    const veredicto = await createAiClient(() => settings).judge({
+      ...pregunta,
+      given: 'emiliano martinez',
+    });
+
+    expect(veredicto.verdict).toBe('correcta');
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('rendirse tampoco cuesta un viaje', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    const veredicto = await createAiClient(() => settings).judge({ ...pregunta, given: 'ni idea' });
+
+    expect(veredicto.verdict).toBe('incorrecta');
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('pero una respuesta dudosa sí va a la IA', async () => {
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            candidates: [
+              { content: { parts: [{ text: JSON.stringify({ verdict: 'parcial', reason: 'Le falta el nombre' }) }] } },
+            ],
+          }),
+          { status: 200 },
+        ),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const veredicto = await createAiClient(() => ({ ...settings, provider: 'gemini' as const })).judge({
+      ...pregunta,
+      given: 'el arquero del aston villa',
+    });
+
+    expect(veredicto.verdict).toBe('parcial');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });

@@ -65,6 +65,7 @@ export function PlayScreen({ settings, onPatch, players, game, onExit, onRematch
   const [tuneText, setTuneText] = useState('');
   const [toast, setToast] = useState<string | null>(null);
   const [leaving, setLeaving] = useState(false);
+  const [ready, setReady] = useState(0);
 
   // El cliente lee los ajustes por referencia, asi no se recrea en cada cambio y
   // el mazo puede quedarse con el mismo durante toda la partida.
@@ -87,12 +88,22 @@ export function PlayScreen({ settings, onPatch, players, game, onExit, onRematch
 
   const deck = useRef<Deck | null>(null);
   if (!deck.current) {
-    deck.current = new Deck(client, { brief: game.brief, difficulty: game.difficulty });
+    deck.current = new Deck(client, {
+      brief: game.brief,
+      difficulty: game.difficulty,
+      onProgress: setReady,
+    });
   }
 
   // Arranque de la partida. Solo una vez: la revancha remonta el componente.
+  //
+  // El mazo entero se prepara aca, de una: la mesa banca esperar al empezar,
+  // pero no que el juego se frene cada ocho preguntas.
   useEffect(() => {
     dispatch({ type: 'start', players, settings: game });
+    void deck.current?.preload(game.rounds).catch(() => {
+      // El error real se muestra cuando `take` lo vuelva a intentar.
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -248,12 +259,15 @@ export function PlayScreen({ settings, onPatch, players, game, onExit, onRematch
 
       {state.phase === 'waiting' && !error ? (
         <div className="card question-card center stack">
-          <span className="label muted">Escribiendo preguntas</span>
+          <span className="label muted">Preparando el mazo</span>
           <Dots />
+          {ready > 0 ? (
+            <p className="answer-text">
+              {ready} {ready === 1 ? 'pregunta lista' : 'preguntas listas'}
+            </p>
+          ) : null}
           <p className="muted">
-            {state.questionNumber === 1
-              ? 'Le estamos pasando tu pedido a la IA.'
-              : 'Un segundo, se está preparando la próxima.'}
+            Se generan todas ahora, de una. Después la partida no vuelve a frenarse.
           </p>
         </div>
       ) : null}

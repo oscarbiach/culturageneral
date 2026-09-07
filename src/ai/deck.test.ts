@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { Deck } from './deck';
+import { Deck, splitEvenly } from './deck';
 import type { GenerateParams, GenerateResult } from '../shared/contracts';
 import type { AiClient } from './transport';
 
@@ -72,11 +72,14 @@ describe('Deck', () => {
     const { client, calls } = fakeClient();
     const deck = new Deck(client, { brief: 'futbol', difficulty: 'normal' });
 
-    const first = await deck.take();
+    const primera = await deck.take();
+    // Vaciamos el mazo para forzar la recarga y poder mirar que le pide.
+    // El tope evita quedarse en el bucle si algo cambia: el mazo se rellena solo.
+    for (let i = 0; i < 40 && deck.pending > 0; i += 1) await deck.take();
     await settle();
-    const refill = calls[1];
-    expect(refill).toBeDefined();
-    expect(refill.avoid).toContain(first.prompt);
+
+    const refill = calls[calls.length - 1];
+    expect(refill.avoid).toContain(primera.prompt);
     expect(refill.avoid.length).toBeGreaterThan(1);
   });
 
@@ -151,3 +154,147 @@ describe('Deck bajo StrictMode', () => {
 
 // Silencia el ruido de las precargas que quedan colgando al terminar los tests.
 vi.spyOn(console, 'error').mockImplementation(() => {});
+
+describe('preparar el mazo de entrada', () => {
+  it('reparte el pedido en varios que salen a la vez', async () => {
+    const { client, calls } = fakeClient();
+    const deck = new Deck(client, { brief: 'futbol', difficulty: 'normal' });
+
+    await deck.preload(20);
+
+    // Tres pedidos en paralelo tardan mucho menos que uno de veinte.
+    expect(calls.length).toBeGreaterThan(1);
+    expect(calls.reduce((total, call) => total + call.count, 0)).toBe(20);
+    expect(deck.pending).toBe(20);
+  });
+
+  it('con el mazo listo, servir una pregunta no toca la red', async () => {
+    const { client, calls } = fakeClient();
+    const deck = new Deck(client, { brief: 'futbol', difficulty: 'normal' });
+
+    await deck.preload(20);
+    const antes = calls.length;
+    for (let i = 0; i < 10; i += 1) await deck.take();
+
+    expect(calls.length).toBe(antes);
+  });
+
+  it('avisa el avance para poder mostrarlo mientras se espera', async () => {
+    const avance: number[] = [];
+    const { client } = fakeClient();
+    const deck = new Deck(client, {
+      brief: 'futbol',
+      difficulty: 'normal',
+      onProgress: (ready) => avance.push(ready),
+    });
+
+    await deck.preload(20);
+    expect(avance.length).toBeGreaterThan(1);
+    expect(avance[avance.length - 1]).toBe(20);
+  });
+
+  it('descarta las repetidas que traigan dos pedidos que no se vieron', async () => {
+    // Los pedidos salen juntos y no comparten el `avoid`, asi que pueden pisarse.
+    let call = 0;
+    const client = {
+      generate: async (params: { count: number }) => {
+        call += 1;
+        return {
+          questions: Array.from({ length: params.count }, (_, i) => ({
+            // El segundo pedido devuelve lo mismo, con tildes y mayúsculas distintas.
+            prompt: call === 1 ? `Pregunta ${i}` : `PREGUNTÁ ${i}`.replace('Á', 'a'),
+            answer: `R${i}`,
+            accept: [],
+            topic: 't',
+            difficulty: 'normal' as const,
+          })),
+        };
+      },
+      judge: async () => ({ verdict: 'correcta' as const, reason: '' }),
+    };
+    const deck = new Deck(client, { brief: 'futbol', difficulty: 'normal' });
+
+    await deck.preload(20);
+    expect(deck.pending).toBeLessThan(20);
+    expect(deck.pending).toBeGreaterThan(0);
+  });
+
+  it('con un pedido caído arranca igual con lo que sí llegó', async () => {
+    let call = 0;
+    const client = {
+      generate: async (params: { count: number }) => {
+        call += 1;
+        if (call === 2) throw new Error('se cayó ese pedido');
+        return {
+          questions: Array.from({ length: params.count }, (_, i) => ({
+            prompt: `Pregunta ${call}-${i}`,
+            answer: 'R',
+            accept: [],
+            topic: 't',
+            difficulty: 'normal' as const,
+          })),
+        };
+      },
+      judge: async () => ({ verdict: 'correcta' as const, reason: '' }),
+    };
+    const deck = new Deck(client, { brief: 'futbol', difficulty: 'normal' });
+
+    await deck.preload(20);
+    expect(deck.pending).toBeGreaterThan(0);
+  });
+});
+
+describe('splitEvenly', () => {
+  it('reparte parejo, para que el más lento tarde poco', () => {
+    expect(splitEvenly(20, 3)).toEqual([7, 7, 6]);
+    expect(splitEvenly(10, 3)).toEqual([4, 3, 3]);
+  });
+
+  it('no parte de más: un pedido de una sola pregunta no vale el viaje', () => {
+    expect(splitEvenly(3, 3)).toEqual([3]);
+    expect(splitEvenly(1, 3)).toEqual([1]);
+  });
+
+  it('parte de más cuando hace falta, para no pasarse del techo por pedido', () => {
+    const grande = splitEvenly(40, 3);
+    expect(grande.reduce((a, b) => a + b, 0)).toBe(40);
+    expect(grande.every((n) => n > 0 && n <= 12)).toBe(true);
+    expect(grande.length).toBeGreaterThan(3);
+  });
+});
+
+describe('no gasta cuota de mas', () => {
+  it('deja de pedir cuando ya tiene las preguntas de la partida', async () => {
+    const { client, calls } = fakeClient();
+    const deck = new Deck(client, { brief: 'futbol', difficulty: 'normal' });
+
+    await deck.preload(10);
+    const pedidosIniciales = calls.length;
+
+    // Se juega la partida entera.
+    for (let i = 0; i < 10; i += 1) {
+      await deck.take();
+      await settle();
+    }
+
+    // Ni un pedido mas: nadie va a ver una pregunta doce.
+    expect(calls.length).toBe(pedidosIniciales);
+  });
+
+  it('para una partida larga completa por atras, sin pasarse', async () => {
+    const { client, calls } = fakeClient();
+    const deck = new Deck(client, { brief: 'futbol', difficulty: 'normal' });
+
+    // 30 rondas: la precarga tiene tope, el resto entra mientras se juega.
+    await deck.preload(30);
+    for (let i = 0; i < 30; i += 1) {
+      await deck.take();
+      await settle();
+    }
+
+    const pedidas = calls.reduce((total, call) => total + call.count, 0);
+    expect(pedidas).toBeGreaterThanOrEqual(30);
+    // Un margen chico se banca; el derroche no.
+    expect(pedidas).toBeLessThanOrEqual(42);
+  });
+});

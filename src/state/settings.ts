@@ -82,7 +82,36 @@ export function saveSettings(settings: AppSettings): void {
   }
 }
 
+/** Una direccion de servidor solo sirve si es absoluta: un `/ai` relativo le
+ *  pega a la propia GitHub Pages, que no acepta POST y contesta 405. */
+export function isProxyUrlUsable(url: string): boolean {
+  try {
+    return ['http:', 'https:'].includes(new URL(url.trim()).protocol);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Que le falta a la configuracion, en castellano y listo para mostrar. Devuelve
+ * null cuando esta todo bien.
+ */
+export function configProblem(s: AppSettings): string | null {
+  if (s.connection === 'proxy') {
+    if (!s.proxyUrl.trim()) {
+      return 'Falta la dirección del servidor del grupo. Si todavía no montaste uno, elegí «Mi propia key».';
+    }
+    if (!isProxyUrlUsable(s.proxyUrl)) {
+      return 'La dirección del servidor tiene que empezar con https:// y ser una dirección completa.';
+    }
+    return null;
+  }
+  if (!s.apiKey.trim()) return 'Falta pegar la API key.';
+  if (!s.model.trim()) return 'Falta elegir el modelo.';
+  return null;
+}
+
 /** True si la app puede pedirle preguntas a alguien. */
 export function isConfigured(s: AppSettings): boolean {
-  return s.connection === 'proxy' ? Boolean(s.proxyUrl) : Boolean(s.apiKey && s.model);
+  return configProblem(s) === null;
 }

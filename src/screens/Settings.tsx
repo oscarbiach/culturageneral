@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { PROVIDERS, listModels, providerMeta } from '../shared/providers';
 import type { ProviderId } from '../shared/contracts';
 import { createAiClient } from '../ai/transport';
-import type { AppSettings, ConnectionMode, Theme } from '../state/settings';
+import { configProblem, type AppSettings, type ConnectionMode, type Theme } from '../state/settings';
 import { Button, Segmented, Switch } from '../ui/controls';
 import { Dots } from '../ui/game-bits';
 
@@ -22,6 +22,7 @@ export function SettingsScreen({ settings, onPatch, onBack }: Props) {
 
   const meta = providerMeta(settings.provider);
   const direct = settings.connection === 'directa';
+  const problem = configProblem(settings);
 
   const pickProvider = (provider: ProviderId) => {
     setModels(null);
@@ -87,9 +88,14 @@ export function SettingsScreen({ settings, onPatch, onBack }: Props) {
         />
         <p className="muted">
           {direct
-            ? 'Modo avanzado: este teléfono habla directo con la IA usando tu API key, que queda guardada solamente acá y nunca viaja a ningún otro lado.'
-            : 'La app le pide las preguntas al servidor del grupo, que tiene la key. Los jugadores no configuran nada.'}
+            ? 'Este teléfono habla directo con la IA usando tu API key, que queda guardada solamente acá y nunca viaja a ningún otro lado. Es lo que necesitás para jugar hoy.'
+            : 'La app le pide las preguntas a un servidor propio que guarda la key, así los jugadores no configuran nada. Hay que montarlo antes (está explicado en el README).'}
         </p>
+        {problem ? (
+          <div className="notice" style={{ ['--tint' as string]: 'var(--orange)' }}>
+            <span>{problem}</span>
+          </div>
+        ) : null}
       </section>
 
       {!direct ? (
@@ -199,7 +205,12 @@ export function SettingsScreen({ settings, onPatch, onBack }: Props) {
       </section>
 
       <section className="stack-sm">
-        <Button tone="lime" block disabled={check.state === 'running'} onClick={test}>
+        <Button
+          tone="lime"
+          block
+          disabled={check.state === 'running' || problem !== null}
+          onClick={test}
+        >
           {check.state === 'running' ? 'Probando' : 'Probar conexión'}
         </Button>
         {check.state === 'running' ? (

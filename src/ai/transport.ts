@@ -16,7 +16,7 @@ import {
   type JudgeResult,
 } from '../shared/contracts';
 import { AiError, generateQuestions, judgeAnswer } from '../shared/providers';
-import type { AppSettings } from '../state/settings';
+import { isProxyUrlUsable, type AppSettings } from '../state/settings';
 
 export interface AiClient {
   generate(params: GenerateParams, signal?: AbortSignal): Promise<GenerateResult>;
@@ -29,7 +29,17 @@ async function viaProxy<T>(
   params: GenerateParams | JudgeParams,
   signal?: AbortSignal,
 ): Promise<T> {
-  const base = settings.proxyUrl.replace(/\/+$/, '');
+  // Sin esta guarda, una URL vacia dejaba la peticion en `/ai` relativo, que en
+  // GitHub Pages termina siendo un POST contra el propio sitio: contesta 405 y
+  // el jugador se come un numero sin ninguna pista de que hacer.
+  if (!isProxyUrlUsable(settings.proxyUrl)) {
+    throw new AiError(
+      'Falta la dirección del servidor del grupo. Si todavía no montaste uno, entrá a Ajustes y elegí «Mi propia key».',
+      'not_configured',
+    );
+  }
+
+  const base = settings.proxyUrl.trim().replace(/\/+$/, '');
   const headers: Record<string, string> = { 'content-type': 'application/json' };
   if (settings.accessCode) headers['x-mano-code'] = settings.accessCode;
 

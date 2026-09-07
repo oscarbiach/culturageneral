@@ -19,12 +19,20 @@ import {
 import {
   GENERATE_SYSTEM_PROMPT,
   JUDGE_SYSTEM_PROMPT,
+  VERIFY_SYSTEM_PROMPT,
   buildGenerateUserPrompt,
   buildJudgeUserPrompt,
+  buildVerifyUserPrompt,
   generateSchema,
   judgeSchema,
+  verifySchema,
 } from './prompts';
-import { extractJson, generateResultSchema, judgeResultSchema } from './schemas';
+import {
+  extractJson,
+  generateResultSchema,
+  judgeResultSchema,
+  verifyResultSchema,
+} from './schemas';
 
 export interface ProviderConfig {
   provider: ProviderId;
@@ -215,8 +223,13 @@ interface Call {
   user: string;
   schema: unknown;
   schemaName: string;
-  /** Cuanto esfuerzo pedirle al modelo. Juzgar es barato; generar no. */
-  heavy: boolean;
+  /** Cuanto pensar. Juzgar una respuesta es barato; inventar preguntas no. */
+  effort: 'low' | 'high';
+  /**
+   * Cero para las tareas donde solo hay una respuesta correcta. Solo generar
+   * necesita algo de azar, y aun asi poco: cuanto mas alta, mas se inventa.
+   */
+  temperature: number;
   maxTokens: number;
 }
 
@@ -245,7 +258,7 @@ async function callAnthropic(cfg: ProviderConfig, call: Call): Promise<unknown> 
       system: call.system,
       messages: [{ role: 'user', content: call.user }],
       output_config: {
-        effort: call.heavy ? 'medium' : 'low',
+        effort: call.effort === 'high' ? 'medium' : 'low',
         format: {
           type: 'json_schema',
           schema: call.schema as Record<string, unknown>,
@@ -284,7 +297,7 @@ async function callGemini(cfg: ProviderConfig, call: Call): Promise<unknown> {
       responseMimeType: 'application/json',
       responseSchema: toGeminiSchema(call.schema),
       maxOutputTokens: call.maxTokens,
-      temperature: call.heavy ? 1 : 0,
+      temperature: call.temperature,
       // Juzgar una respuesta no necesita que el modelo razone largo, y esos
       // segundos se sienten con el telefono en el medio de la mesa.
       ...(withThinking ? { thinkingConfig: { thinkingLevel: 'low' } } : {}),
@@ -298,7 +311,7 @@ async function callGemini(cfg: ProviderConfig, call: Call): Promise<unknown> {
       body: JSON.stringify(body(withThinking)),
     });
 
-  const tune = !call.heavy && !noThinkingConfig.has(cfg.model);
+  const tune = call.effort === 'low' && !noThinkingConfig.has(cfg.model);
   let response = await send(tune);
 
   // Las generaciones viejas de Gemini no conocen ese campo. Lo anotamos para no
@@ -461,7 +474,15 @@ function callOne(cfg: ProviderConfig, call: Call): Promise<unknown> {
   return callOpenAiCompatible(cfg, call);
 }
 
-async function dispatch(cfg: ProviderConfig, call: Call): Promise<unknown> {
+/**
+ * Devuelve tambien con que modelo salio, para que la siguiente llamada de la
+ * misma operacion arranque por ahi. Sin esto, generar y revisar chocaban cada
+ * una contra el modelo saturado y pagaban los reintentos por separado.
+ */
+async function dispatch(
+  cfg: ProviderConfig,
+  call: Call,
+): Promise<{ data: unknown; model: string }> {
   if (!cfg.apiKey) throw new AiError('Falta la API key.', 'not_configured');
   if (!cfg.model) throw new AiError('Falta elegir el modelo.', 'not_configured');
 
@@ -469,7 +490,7 @@ async function dispatch(cfg: ProviderConfig, call: Call): Promise<unknown> {
   let lastError: unknown;
 
   try {
-    return await withRetry(() => callOne(cfg, call));
+    return { data: await withRetry(() => callOne(cfg, call)), model: cfg.model };
   } catch (error) {
     if (!worthSwitching(error)) throw error;
     lastError = error;
@@ -478,9 +499,9 @@ async function dispatch(cfg: ProviderConfig, call: Call): Promise<unknown> {
   for (const model of await siblingModels(cfg, tried)) {
     tried.add(model);
     try {
-      const result = await withRetry(() => callOne({ ...cfg, model }, call), 2);
+      const data = await withRetry(() => callOne({ ...cfg, model }, call), 2);
       cfg.onModelSwitch?.(model);
-      return result;
+      return { data, model };
     } catch (error) {
       if (!worthSwitching(error)) throw error;
       lastError = error;
@@ -495,12 +516,15 @@ export async function generateQuestions(
   raw: GenerateParams,
 ): Promise<GenerateResult> {
   const params = clampGenerateParams(raw);
-  const data = await dispatch(cfg, {
+  const { data, model } = await dispatch(cfg, {
     system: GENERATE_SYSTEM_PROMPT,
     user: buildGenerateUserPrompt(params),
     schema: generateSchema(params.count),
     schemaName: 'preguntas',
-    heavy: true,
+    effort: 'high',
+    // Algo de azar para que no salgan siempre las mismas, pero poco: cada
+    // decima de mas es una decima mas de datos inventados.
+    temperature: 0.7,
     // ~220 tokens por pregunta con holgura para el razonamiento previo.
     maxTokens: Math.min(16000, 2000 + params.count * 400),
   });
@@ -512,17 +536,69 @@ export async function generateQuestions(
       'bad_output',
     );
   }
-  return parsed.data as GenerateResult;
+
+  // Revisamos con el modelo que efectivamente contesto, no con el que pedimos.
+  const questions = await dropUnverified(
+    { ...cfg, model },
+    parsed.data.questions as GenerateResult['questions'],
+  );
+  return { questions };
+}
+
+/**
+ * Segunda pasada sobre lo recien generado, para tirar lo que no se sostiene.
+ *
+ * Escribir veinte preguntas de un tiron y acertarle a todos los datos es mucho
+ * pedirle a un modelo chico; revisarlas despues, de a una y sin el apuro de
+ * inventar, es bastante mas facil. Cuesta una llamada mas, pero cae dentro de la
+ * espera del arranque, que es la unica que el jugador acepta.
+ *
+ * Si la revision falla o viene rara, se devuelven todas: preferimos una pregunta
+ * dudosa a una partida sin preguntas.
+ */
+async function dropUnverified(
+  cfg: ProviderConfig,
+  questions: GenerateResult['questions'],
+): Promise<GenerateResult['questions']> {
+  if (questions.length === 0) return questions;
+
+  try {
+    const { data } = await dispatch(cfg, {
+      system: VERIFY_SYSTEM_PROMPT,
+      user: buildVerifyUserPrompt(questions),
+      schema: verifySchema(questions.length),
+      schemaName: 'revision',
+      effort: 'high',
+      // Revisar no tiene nada de creativo: o el dato es cierto o no lo es.
+      temperature: 0,
+      maxTokens: Math.min(8000, 1000 + questions.length * 120),
+    });
+
+    const parsed = verifyResultSchema.safeParse(data);
+    if (!parsed.success) return questions;
+
+    const rejected = new Set(
+      parsed.data.revisadas.filter((row) => !row.sirve).map((row) => row.n),
+    );
+    const kept = questions.filter((_, index) => !rejected.has(index + 1));
+
+    // Si la revision se lleva puesto casi todo, algo entendio mal: mejor
+    // devolver el mazo entero que dejar a la mesa sin nada.
+    return kept.length >= Math.ceil(questions.length / 2) ? kept : questions;
+  } catch {
+    return questions;
+  }
 }
 
 export async function judgeAnswer(cfg: ProviderConfig, raw: JudgeParams): Promise<JudgeResult> {
   const params = clampJudgeParams(raw);
-  const data = await dispatch(cfg, {
+  const { data } = await dispatch(cfg, {
     system: JUDGE_SYSTEM_PROMPT,
     user: buildJudgeUserPrompt(params),
     schema: judgeSchema,
     schemaName: 'veredicto',
-    heavy: false,
+    effort: 'low',
+    temperature: 0,
     maxTokens: 2000,
   });
 

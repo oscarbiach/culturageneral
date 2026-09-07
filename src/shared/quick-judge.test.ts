@@ -52,16 +52,11 @@ describe('lo que se deja para la IA', () => {
     expect(judge('mil novecientos treinta', mundial)).toBeNull();
   });
 
-  it('el apellido suelto: puede valer, pero eso lo decide la IA', () => {
-    // El prompt del árbitro dice que el apellido solo alcanza. Acá no lo
-    // resolvemos: "martinez" sin el nombre no coincide con ningún candidato
-    // completo, así que se consulta en vez de arriesgar.
+  it('el apellido perdido en una frase larga lo decide la IA', () => {
+    // El apellido suelto sí se resuelve acá, pero metido entre otras palabras
+    // vuelve a ser ambiguo: puede estar nombrando a otro.
     expect(judge('martinez el arquero de aston villa')).toBeNull();
     expect(judge('un arquero del aston villa')).toBeNull();
-  });
-
-  it('un error de dictado que suena parecido pero no coincide', () => {
-    expect(judge('emiliano martines')).toBeNull();
   });
 
   it('una respuesta claramente distinta', () => {
@@ -83,5 +78,40 @@ describe('no regala puntos', () => {
 
   it('sin respuesta canónica no inventa un veredicto', () => {
     expect(quickJudge({ question: 'q', answer: '', accept: [], given: 'algo' })).toBeNull();
+  });
+});
+
+describe('errores de tipeo y de dictado, que en una mesa son la norma', () => {
+  it('una letra cambiada sigue siendo la respuesta', () => {
+    expect(judge('emiliano martines')?.verdict).toBe('correcta');
+    expect(judge('emiliano martinez')?.verdict).toBe('correcta');
+    expect(judge('emliano martinez')?.verdict).toBe('correcta');
+  });
+
+  it('el apellido solo alcanza, si es distintivo', () => {
+    expect(judge('martinez')?.verdict).toBe('correcta');
+    expect(judge('martines')?.verdict).toBe('correcta');
+  });
+
+  it('pero un apellido corto y común no se regala', () => {
+    const cruz = { question: '¿Quién?', answer: 'Juan Cruz', accept: [] };
+    expect(judge('cruz', cruz)).toBeNull();
+    const perez = { question: '¿Quién?', answer: 'Ana Paz', accept: [] };
+    expect(judge('paz', perez)).toBeNull();
+  });
+
+  it('en respuestas cortas no se perdona nada: cambian de significado', () => {
+    const anio = { question: '¿En qué año?', answer: '1930', accept: [] };
+    expect(judge('1930', anio)?.verdict).toBe('correcta');
+    // 1936 no es 1930, por más que se parezcan.
+    expect(judge('1936', anio)).toBeNull();
+    const pais = { question: '¿Qué país?', answer: 'Perú', accept: [] };
+    expect(judge('peru', pais)?.verdict).toBe('correcta');
+    expect(judge('peruano', pais)).toBeNull();
+  });
+
+  it('dos nombres distintos que se parecen no se confunden', () => {
+    const messi = { question: '¿Quién?', answer: 'Lionel Messi', accept: [] };
+    expect(judge('lionel scaloni', messi)).toBeNull();
   });
 });

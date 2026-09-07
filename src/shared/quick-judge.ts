@@ -44,6 +44,43 @@ const GIVE_UP = new Set([
 
 /** Con menos letras que esto, buscar la respuesta adentro de la frase da falsos positivos. */
 const MIN_SUBSTRING = 4;
+/** Un apellido suelto vale si es distintivo; "juan" o "cruz" no lo son. */
+const MIN_SURNAME = 5;
+
+/**
+ * Distancia de edicion, cortada apenas se pasa del limite.
+ *
+ * Sirve para los errores de tipeo y de dictado, que en una mesa son la norma:
+ * nadie escribe "Emiliano Martínez" completo y sin equivocarse mientras el otro
+ * lo apura.
+ */
+function withinDistance(a: string, b: string, limit: number): boolean {
+  if (Math.abs(a.length - b.length) > limit) return false;
+  if (a === b) return true;
+
+  let previous = Array.from({ length: b.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= a.length; i += 1) {
+    const current = [i];
+    let best = i;
+    for (let j = 1; j <= b.length; j += 1) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      current[j] = Math.min(previous[j] + 1, current[j - 1] + 1, previous[j - 1] + cost);
+      best = Math.min(best, current[j]);
+    }
+    // Si la fila entera ya se paso del limite, no hay vuelta atras.
+    if (best > limit) return false;
+    previous = current;
+  }
+  return previous[b.length] <= limit;
+}
+
+/** Cuanto error de tipeo se le perdona a una respuesta segun lo larga que sea. */
+function tolerance(text: string): number {
+  if (text.length <= 4) return 0;
+  if (text.length <= 8) return 1;
+  if (text.length <= 14) return 2;
+  return 3;
+}
 
 /** Devuelve un veredicto solo si es indiscutible; si no, null y decide la IA. */
 export function quickJudge(params: JudgeParams): JudgeResult | null {
@@ -61,6 +98,13 @@ export function quickJudge(params: JudgeParams): JudgeResult | null {
     return { verdict: 'correcta', reason: 'Es la respuesta' };
   }
 
+  // O la escribio con un error de tipeo o de dictado: "emiliano martines".
+  for (const candidate of candidates) {
+    if (withinDistance(given, candidate, tolerance(candidate))) {
+      return { verdict: 'correcta', reason: 'Es la respuesta' };
+    }
+  }
+
   // O la dijo entre otras palabras: "creo que fue emiliano martinez".
   // Los espacios de los bordes evitan que "oro" matchee dentro de "toronto".
   const haystack = ` ${given} `;
@@ -68,6 +112,20 @@ export function quickJudge(params: JudgeParams): JudgeResult | null {
     if (candidate.length < MIN_SUBSTRING) continue;
     if (haystack.includes(` ${candidate} `)) {
       return { verdict: 'correcta', reason: 'Dijo la respuesta' };
+    }
+  }
+
+  // O dijo solo el apellido, que en una mesa es lo normal. Pedimos que sea
+  // largo y unico para no regalar puntos con un "juan" o un "cruz".
+  const surnames = candidates
+    .map((candidate) => candidate.split(' '))
+    .filter((parts) => parts.length > 1)
+    .map((parts) => parts[parts.length - 1])
+    .filter((surname) => surname.length >= MIN_SURNAME);
+
+  for (const surname of surnames) {
+    if (given === surname || withinDistance(given, surname, tolerance(surname))) {
+      return { verdict: 'correcta', reason: 'Con el apellido alcanza' };
     }
   }
 

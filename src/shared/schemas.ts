@@ -24,6 +24,18 @@ export const generateResultSchema = z.object({
   questions: z.array(questionSchema).min(1).max(20),
 });
 
+export const verifyResultSchema = z.object({
+  revisadas: z
+    .array(
+      z.object({
+        n: z.number().int().min(1).max(50),
+        sirve: z.boolean(),
+        motivo: z.string().trim().max(200).optional(),
+      }),
+    )
+    .max(50),
+});
+
 export const judgeResultSchema = z.object({
   verdict: z.enum(['correcta', 'parcial', 'incorrecta']),
   reason: z.string().trim().max(160).default(''),

@@ -42,7 +42,8 @@ describe('saturacion del modelo', () => {
 
     const result = await generateQuestions(cfg, params);
     expect(result.questions[0].answer).toBe('Argentina');
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    // El 503, el reintento que salió bien, y la pasada de revisión.
+    expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 
   it('si insiste, avisa en castellano y no escupe el JSON del proveedor', async () => {
@@ -156,8 +157,10 @@ describe('cambio automatico de modelo', () => {
     );
 
     expect(result.questions[0].answer).toBe('Argentina');
-    // Bajó a 3.7 y no saltó al Pro, que es de otra familia.
-    expect(switched).toEqual(['gemini-3.7-flash']);
+    // Bajó a 3.7 y no saltó al Pro, que es de otra familia. Generar y revisar
+    // son dos llamadas, así que puede avisar una vez por cada una; la pantalla
+    // se encarga de no repetir el cartel.
+    expect([...new Set(switched)]).toEqual(['gemini-3.7-flash']);
   });
 
   it('tambien cambia si el modelo elegido no existe', async () => {
@@ -196,5 +199,67 @@ describe('cambio automatico de modelo', () => {
     ).rejects.toMatchObject({ code: 'unauthorized' });
     expect(switched).toEqual([]);
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('la revisión de las preguntas antes de que salgan a la mesa', () => {
+  const dosPreguntas = {
+    questions: [
+      { prompt: '¿Quién ganó el Mundial 2022?', answer: 'Argentina', accept: [], topic: 'm', difficulty: 'normal' },
+      { prompt: '¿En cuántas finales marcó Messi?', answer: 'Dos', accept: [], topic: 'm', difficulty: 'normal' },
+    ],
+  };
+
+  function conRevision(revisadas: { n: number; sirve: boolean }[]) {
+    let call = 0;
+    return vi.fn(async () => {
+      call += 1;
+      return geminiSays(call === 1 ? dosPreguntas : { revisadas });
+    });
+  }
+
+  it('tira la pregunta que el revisor no puede confirmar', async () => {
+    vi.stubGlobal('fetch', conRevision([
+      { n: 1, sirve: true },
+      { n: 2, sirve: false },
+    ]));
+
+    const result = await generateQuestions(cfg, { ...params, count: 2 });
+    expect(result.questions).toHaveLength(1);
+    expect(result.questions[0].answer).toBe('Argentina');
+  });
+
+  it('deja pasar las que sí se sostienen', async () => {
+    vi.stubGlobal('fetch', conRevision([
+      { n: 1, sirve: true },
+      { n: 2, sirve: true },
+    ]));
+
+    const result = await generateQuestions(cfg, { ...params, count: 2 });
+    expect(result.questions).toHaveLength(2);
+  });
+
+  it('si el revisor se lleva puesto casi todo, desconfía de él y no de las preguntas', async () => {
+    // Un revisor que descarta el mazo entero entendió mal la consigna. Mejor una
+    // pregunta dudosa que una mesa sin nada que jugar.
+    vi.stubGlobal('fetch', conRevision([
+      { n: 1, sirve: false },
+      { n: 2, sirve: false },
+    ]));
+
+    const result = await generateQuestions(cfg, { ...params, count: 2 });
+    expect(result.questions).toHaveLength(2);
+  });
+
+  it('si la revisión se cae, la partida arranca igual', async () => {
+    let call = 0;
+    vi.stubGlobal('fetch', vi.fn(async () => {
+      call += 1;
+      if (call === 1) return geminiSays(dosPreguntas);
+      return new Response('{"error":"se cayó"}', { status: 400 });
+    }));
+
+    const result = await generateQuestions(cfg, { ...params, count: 2 });
+    expect(result.questions).toHaveLength(2);
   });
 });

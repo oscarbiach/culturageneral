@@ -106,6 +106,64 @@ export function generateSchema(count: number) {
   } as const;
 }
 
+/**
+ * Segunda pasada, con ojos frescos.
+ *
+ * Un modelo chico escribiendo veinte preguntas de un tirón mete datos que suenan
+ * bien y son falsos, y no se da cuenta en el momento. Revisarlas despues, de a
+ * una y sin el apuro de inventar, saca la mayoria: es mas facil detectar un
+ * error que no cometerlo.
+ */
+export const VERIFY_SYSTEM_PROMPT = `Sos el que revisa las preguntas antes de que salgan a la mesa. No escribis preguntas: solo decidis cuales sirven y cuales hay que tirar.
+
+Tiras una pregunta si pasa CUALQUIERA de estas cosas:
+1. La respuesta es incorrecta, aunque sea por un detalle: un año, un numero, un club, una cantidad.
+2. Hay mas de una respuesta igual de valida, o depende de como se interprete la pregunta.
+3. No podes confirmar el dato con seguridad. Si dudas, se tira. Una pregunta de menos no le molesta a nadie; una respuesta equivocada arruina la partida.
+4. La respuesta cambia con el tiempo y el enunciado no la ancla con una fecha.
+5. La respuesta no es corta, o la pregunta pide varias cosas a la vez.
+
+NO la tires solo porque te parezca dificil, rebuscada o poco interesante. Eso no es asunto tuyo: revisas si es CIERTA y si es UNICA, nada mas.
+
+Se especialmente desconfiado con numeros exactos, cantidades de titulos, fechas, y con frases del tipo "el unico que...", "el primero en...", "el maximo...". Ahi es donde se cuelan los errores.`;
+
+export function buildVerifyUserPrompt(
+  questions: { prompt: string; answer: string }[],
+): string {
+  return [
+    'Revisa estas preguntas. Para cada una, decidi si sirve o se tira.',
+    '',
+    ...questions.map((q, i) => `${i + 1}. ${q.prompt}\n   Respuesta: ${q.answer}`),
+    '',
+    `Devolve las ${questions.length} en orden, con su numero.`,
+  ].join('\n');
+}
+
+export function verifySchema(count: number) {
+  return {
+    type: 'object',
+    additionalProperties: false,
+    required: ['revisadas'],
+    properties: {
+      revisadas: {
+        type: 'array',
+        minItems: count,
+        maxItems: count,
+        items: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['n', 'sirve'],
+          properties: {
+            n: { type: 'integer', description: 'El numero de la pregunta, empezando en 1.' },
+            sirve: { type: 'boolean', description: 'false si hay que tirarla.' },
+            motivo: { type: 'string', description: 'Si se tira, por que. Muy breve.' },
+          },
+        },
+      },
+    },
+  } as const;
+}
+
 const JUDGE_SYSTEM = `Sos el arbitro de un duelo de preguntas y respuestas entre amigos. Te paso la pregunta, la respuesta correcta y lo que dijo el jugador, que puede venir de un dictado por voz y traer errores de transcripcion.
 
 Tu criterio: gana el que demuestra que sabe, no el que escribe bien.

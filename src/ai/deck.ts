@@ -79,7 +79,19 @@ export class Deck {
    */
   async preload(rounds: number): Promise<void> {
     this.target = rounds;
-    await this.fill(Math.min(rounds, PRELOAD_CAP), PARALLEL);
+    const goal = Math.min(rounds, PRELOAD_CAP);
+
+    // La revision descarta preguntas y los pedidos en paralelo a veces se pisan,
+    // asi que la primera vuelta puede quedar corta. Se completa aca, mientras el
+    // jugador todavia esta mirando la pantalla de carga, y no en medio del juego.
+    for (let round = 0; round < 3; round += 1) {
+      const missing = goal - this.queue.length;
+      if (missing <= 0) return;
+      const before = this.queue.length;
+      await this.fill(missing, round === 0 ? PARALLEL : 1);
+      // Si una vuelta no sumo nada, insistir es perder el tiempo del jugador.
+      if (this.queue.length === before) return;
+    }
   }
 
   /** Cuantas faltan para completar la partida, contando lo ya servido. */

@@ -74,6 +74,9 @@ export function PlayScreen({ settings, onPatch, players, game, onExit, onRematch
 
   const noteModelSwitch = useCallback(
     (model: string) => {
+      // Una misma tanda puede cambiar de modelo en varias llamadas seguidas
+      // (generar y revisar son dos), y no hace falta avisarlo dos veces.
+      if (settingsRef.current.model === model) return;
       onPatch({ model });
       setToast(`El modelo estaba saturado. Seguimos con ${model}.`);
       window.setTimeout(() => setToast(null), 3600);

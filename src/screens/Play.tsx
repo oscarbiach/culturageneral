@@ -48,6 +48,8 @@ function humanError(error: unknown): string {
         return error.message;
       case 'bad_output':
         return 'La IA devolvió algo que no se entiende. Reintentá.';
+      case 'timeout':
+        return 'La IA tardó demasiado.';
       default:
         return error.message;
     }
@@ -66,6 +68,8 @@ export function PlayScreen({ settings, onPatch, players, game, onExit, onRematch
   const [toast, setToast] = useState<string | null>(null);
   const [leaving, setLeaving] = useState(false);
   const [ready, setReady] = useState(0);
+  /** El arbitro no contesto: en vez de colgar la partida, decide la mesa. */
+  const [judgeDown, setJudgeDown] = useState(false);
 
   // El cliente lee los ajustes por referencia, asi no se recrea en cada cambio y
   // el mazo puede quedarse con el mismo durante toda la partida.
@@ -139,6 +143,7 @@ export function PlayScreen({ settings, onPatch, players, game, onExit, onRematch
 
     let cancelled = false;
     setError(null);
+    setJudgeDown(false);
     client
       .judge({
         question: question.prompt,
@@ -154,8 +159,9 @@ export function PlayScreen({ settings, onPatch, players, game, onExit, onRematch
             : { type: 'verdict', verdict: result.verdict, reason: result.reason },
         );
       })
-      .catch((cause) => {
-        if (!cancelled) setError(humanError(cause));
+      .catch(() => {
+        // Un arbitro caido no puede frenar la mesa: se pasa a decision manual.
+        if (!cancelled) setJudgeDown(true);
       });
     return () => {
       cancelled = true;
@@ -362,11 +368,45 @@ export function PlayScreen({ settings, onPatch, players, game, onExit, onRematch
         )
       ) : null}
 
-      {state.phase === 'judging' ? (
+      {state.phase === 'judging' && !judgeDown ? (
         <div className="card center stack-sm">
           <span className="label">Corrigiendo</span>
           <Dots />
           <p className="muted">Dijiste: «{state.given}»</p>
+        </div>
+      ) : null}
+
+      {state.phase === 'judging' && judgeDown && question ? (
+        <div className="stack-sm">
+          <div className="notice" style={{ ['--tint' as string]: 'var(--orange)' }}>
+            <span>El árbitro no contestó a tiempo. Decidan ustedes y sigan.</span>
+          </div>
+          <div className="card stack-sm">
+            <span className="label muted">Dijo</span>
+            <p className="answer-text">«{state.given}»</p>
+            <span className="label muted">La respuesta era</span>
+            <p className="answer-text">{question.answer}</p>
+          </div>
+          <div className="row row-stretch">
+            {(
+              [
+                ['incorrecta', 'Mal', 'red'],
+                ['parcial', 'Media', 'orange'],
+                ['correcta', 'Bien', 'green'],
+              ] as [Verdict, string, 'red' | 'orange' | 'green'][]
+            ).map(([verdict, label, tone]) => (
+              <Button
+                key={verdict}
+                tone={tone}
+                size="lg"
+                block
+                className="grow"
+                onClick={() => dispatch({ type: 'verdict', verdict })}
+              >
+                {label}
+              </Button>
+            ))}
+          </div>
         </div>
       ) : null}
 
@@ -424,10 +464,44 @@ export function PlayScreen({ settings, onPatch, players, game, onExit, onRematch
         </div>
       ) : null}
 
-      {state.phase === 'stealJudging' ? (
+      {state.phase === 'stealJudging' && !judgeDown ? (
         <div className="card center stack-sm">
           <span className="label">Viendo si robó</span>
           <Dots />
+        </div>
+      ) : null}
+
+      {state.phase === 'stealJudging' && judgeDown && question ? (
+        <div className="stack-sm">
+          <div className="notice" style={{ ['--tint' as string]: 'var(--orange)' }}>
+            <span>El árbitro no contestó a tiempo. Decidan ustedes.</span>
+          </div>
+          <div className="card stack-sm">
+            <span className="label muted">Dijo</span>
+            <p className="answer-text">«{state.stealGiven}»</p>
+            <span className="label muted">La respuesta era</span>
+            <p className="answer-text">{question.answer}</p>
+          </div>
+          <div className="row row-stretch">
+            <Button
+              tone="pink"
+              size="lg"
+              block
+              className="grow"
+              onClick={() => dispatch({ type: 'stealVerdict', verdict: 'correcta' })}
+            >
+              Robó
+            </Button>
+            <Button
+              tone="plain"
+              size="lg"
+              block
+              className="grow"
+              onClick={() => dispatch({ type: 'stealVerdict', verdict: 'incorrecta' })}
+            >
+              No robó
+            </Button>
+          </div>
         </div>
       ) : null}
 

@@ -110,6 +110,7 @@ export class AiError extends Error {
       | 'rate_limited'
       | 'overloaded'
       | 'model_missing'
+      | 'timeout'
       | 'provider_error'
       | 'refusal'
       | 'bad_output'
@@ -169,16 +170,36 @@ function httpError(status: number, body: string): AiError {
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-/** fetch, pero con el corte de red convertido en algo que la UI sabe explicar. */
-async function request(url: string, init: RequestInit): Promise<Response> {
+/** Techos de tiempo por tarea, en milisegundos. */
+const TIMEOUTS = {
+  /** Generar pasa en la pantalla de carga: se le da aire. */
+  generate: 60_000,
+  verify: 45_000,
+  /** Juzgar tiene a la mesa esperando. Pasado esto, deciden ellos. */
+  judge: 9_000,
+} as const;
+const LIST_TIMEOUT_MS = 10_000;
+
+/** fetch con techo de tiempo, y con los fallos traducidos a algo explicable. */
+async function request(url: string, init: RequestInit, timeoutMs: number): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    return await fetch(url, init);
-  } catch {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } catch (error) {
+    if (controller.signal.aborted) {
+      // No es reintentable: si tardo de mas una vez, va a volver a tardar, y
+      // mientras tanto la mesa espera.
+      throw new AiError('El proveedor tardó demasiado en contestar.', 'timeout');
+    }
+    if ((error as Error)?.name === 'AbortError') throw error;
     throw new AiError(
       'No se pudo conectar con el proveedor. Fijate la conexión.',
       'provider_error',
       true,
     );
+  } finally {
+    clearTimeout(timer);
   }
 }
 
@@ -226,6 +247,19 @@ interface Call {
   /** Cuanto pensar. Juzgar una respuesta es barato; inventar preguntas no. */
   effort: 'low' | 'high';
   /**
+   * Techo duro por llamada. Sin esto una peticion colgada se lleva puesta la
+   * partida: nadie va a esperar con el telefono en la mano.
+   */
+  timeoutMs: number;
+  /** Intentos totales ante un error pasajero. 1 = no reintentar. */
+  retries: number;
+  /**
+   * Si vale la pena probar otro modelo cuando este falla. Para generar si:
+   * pasa en la pantalla de carga. Para juzgar no: hay alguien esperando, y
+   * encadenar modelos convierte una espera larga en uno eterna.
+   */
+  allowModelSwitch: boolean;
+  /**
    * Cero para las tareas donde solo hay una respuesta correcta. Solo generar
    * necesita algo de azar, y aun asi poco: cuanto mas alta, mas se inventa.
    */
@@ -249,6 +283,10 @@ async function callAnthropic(cfg: ProviderConfig, call: Call): Promise<unknown> 
     // Necesario cuando la app llama directo desde el navegador con la key del
     // propio jugador. En el Worker no cambia nada.
     dangerouslyAllowBrowser: true,
+    timeout: call.timeoutMs,
+    // Los reintentos los maneja `withRetry`, que sabe cual es la tarea: el SDK
+    // reintentando por su cuenta multiplicaria la espera del arbitro.
+    maxRetries: 0,
   });
 
   try {
@@ -305,11 +343,15 @@ async function callGemini(cfg: ProviderConfig, call: Call): Promise<unknown> {
   });
 
   const send = (withThinking: boolean) =>
-    request(url, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', 'x-goog-api-key': cfg.apiKey },
-      body: JSON.stringify(body(withThinking)),
-    });
+    request(
+      url,
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-goog-api-key': cfg.apiKey },
+        body: JSON.stringify(body(withThinking)),
+      },
+      call.timeoutMs,
+    );
 
   const tune = call.effort === 'low' && !noThinkingConfig.has(cfg.model);
   let response = await send(tune);
@@ -361,17 +403,21 @@ async function callOpenAiCompatible(cfg: ProviderConfig, call: Call): Promise<un
   };
 
   const send = async (payload: Record<string, unknown>) =>
-    request(`${base}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        authorization: `Bearer ${cfg.apiKey}`,
-        // OpenRouter los pide para atribuir el trafico; el resto los ignora.
-        'http-referer': 'https://github.com/oscarbiach/culturageneral',
-        'x-title': 'Mano a Mano',
+    request(
+      `${base}/chat/completions`,
+      {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          authorization: `Bearer ${cfg.apiKey}`,
+          // OpenRouter los pide para atribuir el trafico; el resto los ignora.
+          'http-referer': 'https://github.com/oscarbiach/culturageneral',
+          'x-title': 'Mano a Mano',
+        },
+        body: JSON.stringify(payload),
       },
-      body: JSON.stringify(payload),
-    });
+      call.timeoutMs,
+    );
 
   let response = await send(body);
 
@@ -490,9 +536,14 @@ async function dispatch(
   let lastError: unknown;
 
   try {
-    return { data: await withRetry(() => callOne(cfg, call)), model: cfg.model };
+    return {
+      data: await withRetry(() => callOne(cfg, call), call.retries),
+      model: cfg.model,
+    };
   } catch (error) {
-    if (!worthSwitching(error)) throw error;
+    // Cambiar de modelo cuesta otra ronda entera de esperas. En una tarea
+    // interactiva eso no se paga: que decida la mesa y el juego sigue.
+    if (!call.allowModelSwitch || !worthSwitching(error)) throw error;
     lastError = error;
   }
 
@@ -522,6 +573,9 @@ export async function generateQuestions(
     schema: generateSchema(params.count),
     schemaName: 'preguntas',
     effort: 'high',
+    timeoutMs: TIMEOUTS.generate,
+    retries: 3,
+    allowModelSwitch: true,
     // Algo de azar para que no salgan siempre las mismas, pero poco: cada
     // decima de mas es una decima mas de datos inventados.
     temperature: 0.7,
@@ -569,6 +623,9 @@ async function dropUnverified(
       schema: verifySchema(questions.length),
       schemaName: 'revision',
       effort: 'high',
+      timeoutMs: TIMEOUTS.verify,
+      retries: 2,
+      allowModelSwitch: true,
       // Revisar no tiene nada de creativo: o el dato es cierto o no lo es.
       temperature: 0,
       maxTokens: Math.min(8000, 1000 + questions.length * 120),
@@ -599,7 +656,13 @@ export async function judgeAnswer(cfg: ProviderConfig, raw: JudgeParams): Promis
     schemaName: 'veredicto',
     effort: 'low',
     temperature: 0,
-    maxTokens: 2000,
+    // Un veredicto son veinte palabras. Lo demas era margen para que el modelo
+    // se fuera por las ramas.
+    maxTokens: 1000,
+    timeoutMs: TIMEOUTS.judge,
+    // Ni reintentos ni cambio de modelo: la mesa esta esperando.
+    retries: 1,
+    allowModelSwitch: false,
   });
 
   const parsed = judgeResultSchema.safeParse(data);
@@ -624,6 +687,7 @@ export async function listModels(cfg: Omit<ProviderConfig, 'model'>): Promise<st
     const response = await request(
       'https://generativelanguage.googleapis.com/v1beta/models?pageSize=200',
       { headers: { 'x-goog-api-key': cfg.apiKey } },
+      LIST_TIMEOUT_MS,
     );
     if (!response.ok) throw httpError(response.status, await response.text());
     const data = (await response.json()) as {
@@ -637,9 +701,11 @@ export async function listModels(cfg: Omit<ProviderConfig, 'model'>): Promise<st
 
   const base = OPENAI_COMPATIBLE[cfg.provider];
   if (!base) throw new AiError(`Proveedor desconocido: ${cfg.provider}.`, 'not_configured');
-  const response = await request(`${base}/models`, {
-    headers: { authorization: `Bearer ${cfg.apiKey}` },
-  });
+  const response = await request(
+    `${base}/models`,
+    { headers: { authorization: `Bearer ${cfg.apiKey}` } },
+    LIST_TIMEOUT_MS,
+  );
   if (!response.ok) throw httpError(response.status, await response.text());
   const data = (await response.json()) as { data?: { id?: string }[] };
   return (data.data ?? []).map((m) => m.id ?? '').filter(Boolean).sort();

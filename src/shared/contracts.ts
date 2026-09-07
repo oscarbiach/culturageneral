@@ -82,6 +82,7 @@ export interface AiErrorBody {
     | 'rate_limited'
     | 'overloaded'
     | 'model_missing'
+    | 'timeout'
     | 'provider_error'
     | 'refusal'
     | 'bad_output'

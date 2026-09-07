@@ -57,21 +57,24 @@ describe('saturacion del modelo', () => {
     });
   });
 
-  it('el arbitro tambien reintenta: un 503 no puede colgar una respuesta', async () => {
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce(new Response(OVERLOADED, { status: 503 }))
-      .mockResolvedValueOnce(geminiSays({ verdict: 'correcta', reason: 'Con el apodo alcanza' }));
+  it('el arbitro NO reintenta ni cambia de modelo: la mesa esta esperando', async () => {
+    // Reintentar tres veces y despues encadenar modelos alternativos convertia
+    // una respuesta lenta en una espera de minutos, con la gente mirando el
+    // telefono. Ante un fallo, falla rapido y decide la mesa.
+    const fetchMock = vi.fn(async () => new Response(OVERLOADED, { status: 503 }));
     vi.stubGlobal('fetch', fetchMock);
 
-    const veredicto = await judgeAnswer(cfg, {
-      question: '¿Quién atajó los penales?',
-      answer: 'Emiliano Martínez',
-      accept: ['Dibu'],
-      given: 'el dibu',
-    });
-    expect(veredicto.verdict).toBe('correcta');
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    await expect(
+      judgeAnswer(cfg, {
+        question: '¿Quién atajó los penales?',
+        answer: 'Emiliano Martínez',
+        accept: ['Dibu'],
+        given: 'el dibu',
+      }),
+    ).rejects.toBeInstanceOf(AiError);
+
+    // Una sola llamada. Ni reintentos, ni lista de modelos, ni alternativas.
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -177,16 +180,21 @@ describe('cambio automatico de modelo', () => {
         if (String(url).includes('gemini-9.9-flash')) {
           return new Response('{"error":{"code":404,"status":"NOT_FOUND"}}', { status: 404 });
         }
-        return geminiSays({ verdict: 'correcta', reason: 'ok' });
+        return geminiSays({
+          questions: [
+            { prompt: '¿Quién ganó el Mundial 2022?', answer: 'Argentina', accept: [], topic: 'm', difficulty: 'normal' },
+          ],
+          revisadas: [{ n: 1, sirve: true }],
+        });
       }),
     );
 
-    const veredicto = await judgeAnswer(
+    const result = await generateQuestions(
       { ...cfg, model: 'gemini-9.9-flash', onModelSwitch: (m) => switched.push(m) },
-      { question: 'q', answer: 'a', accept: [], given: 'a' },
+      params,
     );
-    expect(veredicto.verdict).toBe('correcta');
-    expect(switched).toEqual(['gemini-3.6-flash']);
+    expect(result.questions).toHaveLength(1);
+    expect([...new Set(switched)]).toEqual(['gemini-3.6-flash']);
   });
 
   it('no cambia de modelo por una key rechazada: fallaria igual en todos', async () => {
@@ -262,4 +270,52 @@ describe('la revisión de las preguntas antes de que salgan a la mesa', () => {
     const result = await generateQuestions(cfg, { ...params, count: 2 });
     expect(result.questions).toHaveLength(2);
   });
+});
+
+describe('techos de tiempo', () => {
+  it('el árbitro corta a los pocos segundos en vez de colgar la partida', async () => {
+    // Una petición que nunca contesta: antes se quedaba esperando para siempre,
+    // y encima la repetía en otros modelos.
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        (_url: string, init: RequestInit) =>
+          new Promise((_resolve, reject) => {
+            init.signal?.addEventListener('abort', () =>
+              reject(Object.assign(new Error('aborted'), { name: 'AbortError' })),
+            );
+          }),
+      ),
+    );
+
+    const empezo = Date.now();
+    const error = (await judgeAnswer(cfg, {
+      question: '¿Quién?',
+      answer: 'Alguien',
+      accept: [],
+      given: 'otra cosa',
+    }).catch((e) => e)) as AiError;
+
+    expect(error).toBeInstanceOf(AiError);
+    expect(error.code).toBe('timeout');
+    // Nueve segundos de techo, con margen para la máquina de tests.
+    expect(Date.now() - empezo).toBeLessThan(15_000);
+  }, 20_000);
+
+  it('un timeout no se reintenta: si tardó una vez, va a volver a tardar', async () => {
+    const fetchMock = vi.fn(
+      (_url: string, init: RequestInit) =>
+        new Promise((_resolve, reject) => {
+          init.signal?.addEventListener('abort', () =>
+            reject(Object.assign(new Error('aborted'), { name: 'AbortError' })),
+          );
+        }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(
+      judgeAnswer(cfg, { question: 'q', answer: 'a', accept: [], given: 'b' }),
+    ).rejects.toMatchObject({ code: 'timeout' });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  }, 20_000);
 });

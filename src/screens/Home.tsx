@@ -133,6 +133,10 @@ export function HomeScreen({ settings, onPlay, onOpenSettings }: Props) {
             robar medio punto. No es para pensarla: es solo si ya la sabías.
           </li>
           <li>
+            <b>El fallo lo dan ustedes.</b> Si escribís la respuesta igual, el punto es automático.
+            Si no, la app la revela y la mesa decide: bien, media o mal.
+          </li>
+          <li>
             <b>Las preguntas se piden.</b> Antes de arrancar escribís qué querés, con tus palabras.
             Y en cualquier momento de la partida podés corregir: «están muy difíciles», «menos
             geografía», «más fútbol argentino».

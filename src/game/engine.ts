@@ -113,8 +113,8 @@ export function reduce(state: GameState, action: Action): GameState {
 
     case 'answer': {
       if (state.phase !== 'asking') return state;
-      // En modo manual nadie escribe: el veredicto llega por boton.
-      if (state.settings.judgeMode !== 'ia') return state;
+      // Contestando en voz alta nadie escribe: el veredicto llega por boton.
+      if (state.settings.judgeMode !== 'escrito') return state;
       return { ...state, given: action.given, phase: 'judging' };
     }
 
@@ -162,7 +162,7 @@ export function reduce(state: GameState, action: Action): GameState {
 
     case 'stealAnswer': {
       if (state.phase !== 'steal') return state;
-      if (state.settings.judgeMode !== 'ia') return state;
+      if (state.settings.judgeMode !== 'escrito') return state;
       return { ...state, stealGiven: action.given, phase: 'stealJudging' };
     }
 

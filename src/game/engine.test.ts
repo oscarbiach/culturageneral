@@ -136,39 +136,39 @@ describe('el robo', () => {
   });
 });
 
-describe('modo arbitro IA', () => {
+describe('contestando por escrito', () => {
   it('mandar respuesta deja la ronda esperando el veredicto', () => {
     const s = play(
       [
         { type: 'questionReady', question: question(1) },
         { type: 'answer', given: 'Messi' },
       ],
-      { judgeMode: 'ia' },
+      { judgeMode: 'escrito' },
     );
     expect(s.phase).toBe('judging');
     expect(s.given).toBe('Messi');
   });
 
-  it('en modo manual escribir una respuesta no hace nada', () => {
+  it('contestando en voz alta, escribir una respuesta no hace nada', () => {
     const s = play(
       [
         { type: 'questionReady', question: question(1) },
         { type: 'answer', given: 'Messi' },
       ],
-      { judgeMode: 'manual' },
+      { judgeMode: 'voz' },
     );
     expect(s.phase).toBe('asking');
     expect(s.given).toBeNull();
   });
 
-  it('el veredicto de la IA guarda el motivo para mostrarlo', () => {
+  it('el veredicto guarda el motivo para mostrarlo', () => {
     const s = play(
       [
         { type: 'questionReady', question: question(1) },
         { type: 'answer', given: 'messi' },
         { type: 'verdict', verdict: 'correcta', reason: 'Es el apellido, alcanza' },
       ],
-      { judgeMode: 'ia' },
+      { judgeMode: 'escrito' },
     );
     expect(s.reason).toBe('Es el apellido, alcanza');
     expect(s.scores.a).toBe(1);

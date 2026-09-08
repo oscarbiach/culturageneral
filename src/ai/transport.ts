@@ -12,22 +12,24 @@ import {
   type AiRequest,
   type GenerateParams,
   type GenerateResult,
-  type JudgeParams,
-  type JudgeResult,
 } from '../shared/contracts';
-import { AiError, generateQuestions, judgeAnswer } from '../shared/providers';
-import { quickJudge } from '../shared/quick-judge';
+import { AiError, generateQuestions } from '../shared/providers';
 import { isProxyUrlUsable, type AppSettings } from '../state/settings';
 
+/**
+ * La app solo le pide preguntas a la IA. Corregir se resuelve en el telefono:
+ * si la respuesta esta escrita igual se da por buena al instante, y si no, se
+ * revela y decide la mesa. El Worker sigue ofreciendo la tarea `judge` por si
+ * alguna vez se quiere volver, pero nada de la partida depende de la red.
+ */
 export interface AiClient {
   generate(params: GenerateParams, signal?: AbortSignal): Promise<GenerateResult>;
-  judge(params: JudgeParams, signal?: AbortSignal): Promise<JudgeResult>;
 }
 
 async function viaProxy<T>(
   settings: AppSettings,
   task: AiRequest['task'],
-  params: GenerateParams | JudgeParams,
+  params: GenerateParams,
   signal?: AbortSignal,
 ): Promise<T> {
   // Sin esta guarda, una URL vacia dejaba la peticion en `/ai` relativo, que en
@@ -106,15 +108,5 @@ export function createAiClient(
       getSettings().connection === 'proxy'
         ? viaProxy<GenerateResult>(getSettings(), 'generate', params, signal)
         : generateQuestions(config(), params),
-    judge: async (params, signal) => {
-      // Antes de salir a la red: la mayoria de las respuestas de una trivia son
-      // exactas o casi, y hacer esperar a la mesa por eso no tiene sentido.
-      const obvious = quickJudge(params);
-      if (obvious) return obvious;
-
-      return getSettings().connection === 'proxy'
-        ? viaProxy<JudgeResult>(getSettings(), 'judge', params, signal)
-        : judgeAnswer(config(), params);
-    },
   };
 }

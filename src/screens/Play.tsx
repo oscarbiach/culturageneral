@@ -3,6 +3,7 @@ import { emptyState, reduce } from '../game/engine';
 import type { GameSettings, Player } from '../game/types';
 import type { Verdict } from '../shared/contracts';
 import { AiError } from '../shared/providers';
+import { quickJudge } from '../shared/quick-judge';
 import { Deck } from '../ai/deck';
 import { createAiClient } from '../ai/transport';
 import type { AppSettings } from '../state/settings';
@@ -69,8 +70,8 @@ export function PlayScreen({ settings, onPatch, players, game, onExit, onRematch
   const [toast, setToast] = useState<string | null>(null);
   const [leaving, setLeaving] = useState(false);
   const [ready, setReady] = useState(0);
-  /** El arbitro no contesto: en vez de colgar la partida, decide la mesa. */
-  const [judgeDown, setJudgeDown] = useState(false);
+  /** En la fase de decidir, si la mesa ya vio la respuesta. */
+  const [revealed, setRevealed] = useState(false);
 
   // El cliente lee los ajustes por referencia, asi no se recrea en cada cambio y
   // el mazo puede quedarse con el mismo durante toda la partida.
@@ -135,47 +136,6 @@ export function PlayScreen({ settings, onPatch, players, game, onExit, onRematch
     };
   }, [state.phase, state.questionNumber, retry]);
 
-  // Veredicto de la IA, tanto para la respuesta del turno como para el robo.
-  useEffect(() => {
-    const stealing = state.phase === 'stealJudging';
-    if (state.phase !== 'judging' && !stealing) return undefined;
-    const question = state.current;
-    if (!question) return undefined;
-
-    let cancelled = false;
-    setError(null);
-    setJudgeDown(false);
-    client
-      .judge({
-        question: question.prompt,
-        answer: question.answer,
-        accept: question.accept,
-        given: (stealing ? state.stealGiven : state.given) ?? '',
-      })
-      .then((result) => {
-        if (cancelled) return;
-        dispatch(
-          stealing
-            ? { type: 'stealVerdict', verdict: result.verdict, reason: result.reason }
-            : { type: 'verdict', verdict: result.verdict, reason: result.reason },
-        );
-      })
-      .catch(() => {
-        // Un arbitro caido no puede frenar la mesa: se pasa a decision manual.
-        if (!cancelled) setJudgeDown(true);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [state.phase, state.current, state.given, state.stealGiven, client]);
-
-  // El robo comparte el campo de texto con el turno normal, asi que hay que
-  // vaciarlo al abrir la ventana: si no, el ladron encuentra escrita la
-  // respuesta que acaba de errar el otro.
-  useEffect(() => {
-    if (state.phase === 'steal') setAnswer('');
-  }, [state.phase]);
-
   // Sonido al cerrar cada ronda: es lo que le da cuerpo al acierto y al error.
   const closedAt = useRef(-1);
   useEffect(() => {
@@ -201,6 +161,48 @@ export function PlayScreen({ settings, onPatch, players, game, onExit, onRematch
   const stealClock = useCountdown(game.stealSeconds || null, state.phase === 'steal', stealOver);
 
   const speech = useSpeech(setAnswer);
+
+  /**
+   * Manda la respuesta escrita.
+   *
+   * Si coincide con la respuesta —tolerando mayusculas, tildes, tipeo y el
+   * apellido solo— se da por buena al instante y la partida no se frena. Si no,
+   * pasa a que la mesa revele y decida: nadie sale a internet a corregir.
+   */
+  const submitAnswer = (given: string) => {
+    const clean = given.trim();
+    if (!clean || !question) return;
+    speech.stop();
+    setRevealed(false);
+    dispatch({ type: 'answer', given: clean });
+
+    const obvious = quickJudge({
+      question: question.prompt,
+      answer: question.answer,
+      accept: question.accept,
+      given: clean,
+    });
+    if (obvious?.verdict === 'correcta') {
+      dispatch({ type: 'verdict', verdict: 'correcta', reason: obvious.reason });
+    }
+  };
+
+  const submitSteal = (given: string) => {
+    const clean = given.trim();
+    if (!clean || !question) return;
+    setRevealed(false);
+    dispatch({ type: 'stealAnswer', given: clean });
+
+    const obvious = quickJudge({
+      question: question.prompt,
+      answer: question.answer,
+      accept: question.accept,
+      given: clean,
+    });
+    if (obvious?.verdict === 'correcta') {
+      dispatch({ type: 'stealVerdict', verdict: 'correcta', reason: obvious.reason });
+    }
+  };
 
   const applyTuning = (text: string) => {
     const clean = text.trim();
@@ -300,7 +302,7 @@ export function PlayScreen({ settings, onPatch, players, game, onExit, onRematch
 
       {/* ---- El de turno responde ---- */}
       {state.phase === 'asking' && question ? (
-        game.judgeMode === 'ia' ? (
+        game.judgeMode === 'escrito' ? (
           <div className="stack-sm">
             <div className="row">
               <input
@@ -311,9 +313,7 @@ export function PlayScreen({ settings, onPatch, players, game, onExit, onRematch
                 autoCorrect="off"
                 onChange={(event) => setAnswer(event.target.value)}
                 onKeyDown={(event) => {
-                  if (event.key === 'Enter' && answer.trim()) {
-                    dispatch({ type: 'answer', given: answer.trim() });
-                  }
+                  if (event.key === 'Enter') submitAnswer(answer);
                 }}
               />
               {speech.supported ? (
@@ -331,10 +331,7 @@ export function PlayScreen({ settings, onPatch, players, game, onExit, onRematch
               size="lg"
               block
               disabled={!answer.trim()}
-              onClick={() => {
-                speech.stop();
-                dispatch({ type: 'answer', given: answer.trim() });
-              }}
+              onClick={() => submitAnswer(answer)}
             >
               Responder
             </Button>
@@ -369,45 +366,46 @@ export function PlayScreen({ settings, onPatch, players, game, onExit, onRematch
         )
       ) : null}
 
-      {state.phase === 'judging' && !judgeDown ? (
-        <div className="card center stack-sm">
-          <span className="label">Corrigiendo</span>
-          <Dots />
-          <p className="muted">Dijiste: «{state.given}»</p>
-        </div>
-      ) : null}
-
-      {state.phase === 'judging' && judgeDown && question ? (
-        <div className="stack-sm">
-          <div className="notice" style={{ ['--tint' as string]: 'var(--orange)' }}>
-            <span>El árbitro no contestó a tiempo. Decidan ustedes y sigan.</span>
-          </div>
+      {state.phase === 'judging' && question ? (
+        <div className="stack-sm anim-in">
           <div className="card stack-sm">
-            <span className="label muted">Dijo</span>
+            <span className="label muted">{asker?.name} dijo</span>
             <p className="answer-text">«{state.given}»</p>
-            <span className="label muted">La respuesta era</span>
-            <p className="answer-text">{question.answer}</p>
           </div>
-          <div className="row row-stretch">
-            {(
-              [
-                ['incorrecta', 'Mal', 'red'],
-                ['parcial', 'Media', 'orange'],
-                ['correcta', 'Bien', 'green'],
-              ] as [Verdict, string, 'red' | 'orange' | 'green'][]
-            ).map(([verdict, label, tone]) => (
-              <Button
-                key={verdict}
-                tone={tone}
-                size="lg"
-                block
-                className="grow"
-                onClick={() => dispatch({ type: 'verdict', verdict })}
-              >
-                {label}
-              </Button>
-            ))}
-          </div>
+
+          {revealed ? (
+            <>
+              <div className="card stack-sm" style={{ ['--tint' as string]: tint }}>
+                <span className="label muted">La respuesta era</span>
+                <p className="answer-text">{question.answer}</p>
+                {question.note ? <p className="muted">{question.note}</p> : null}
+              </div>
+              <div className="row row-stretch">
+                {(
+                  [
+                    ['incorrecta', 'Mal', 'red'],
+                    ['parcial', 'Media', 'orange'],
+                    ['correcta', 'Bien', 'green'],
+                  ] as [Verdict, string, 'red' | 'orange' | 'green'][]
+                ).map(([verdict, label, tone]) => (
+                  <Button
+                    key={verdict}
+                    tone={tone}
+                    size="lg"
+                    block
+                    className="grow"
+                    onClick={() => dispatch({ type: 'verdict', verdict })}
+                  >
+                    {label}
+                  </Button>
+                ))}
+              </div>
+            </>
+          ) : (
+            <Button tone="cyan" size="lg" block onClick={() => setRevealed(true)}>
+              Revelar respuesta
+            </Button>
+          )}
         </div>
       ) : null}
 
@@ -418,7 +416,7 @@ export function PlayScreen({ settings, onPatch, players, game, onExit, onRematch
           <p className="center steal-call">
             <b>{thief.name}</b>, ¿la sabías?
           </p>
-          {game.judgeMode === 'ia' ? (
+          {game.judgeMode === 'escrito' ? (
             <>
               <input
                 className="field"
@@ -434,7 +432,7 @@ export function PlayScreen({ settings, onPatch, players, game, onExit, onRematch
                   block
                   className="grow"
                   disabled={!answer.trim()}
-                  onClick={() => dispatch({ type: 'stealAnswer', given: answer.trim() })}
+                  onClick={() => submitSteal(answer)}
                 >
                   Robar
                 </Button>
@@ -465,44 +463,45 @@ export function PlayScreen({ settings, onPatch, players, game, onExit, onRematch
         </div>
       ) : null}
 
-      {state.phase === 'stealJudging' && !judgeDown ? (
-        <div className="card center stack-sm">
-          <span className="label">Viendo si robó</span>
-          <Dots />
-        </div>
-      ) : null}
-
-      {state.phase === 'stealJudging' && judgeDown && question ? (
-        <div className="stack-sm">
-          <div className="notice" style={{ ['--tint' as string]: 'var(--orange)' }}>
-            <span>El árbitro no contestó a tiempo. Decidan ustedes.</span>
-          </div>
+      {state.phase === 'stealJudging' && question ? (
+        <div className="stack-sm anim-in">
           <div className="card stack-sm">
-            <span className="label muted">Dijo</span>
+            <span className="label muted">{thief?.name ?? 'El rival'} dijo</span>
             <p className="answer-text">«{state.stealGiven}»</p>
-            <span className="label muted">La respuesta era</span>
-            <p className="answer-text">{question.answer}</p>
           </div>
-          <div className="row row-stretch">
-            <Button
-              tone="pink"
-              size="lg"
-              block
-              className="grow"
-              onClick={() => dispatch({ type: 'stealVerdict', verdict: 'correcta' })}
-            >
-              Robó
+
+          {revealed ? (
+            <>
+              <div className="card stack-sm">
+                <span className="label muted">La respuesta era</span>
+                <p className="answer-text">{question.answer}</p>
+              </div>
+              <div className="row row-stretch">
+                <Button
+                  tone="pink"
+                  size="lg"
+                  block
+                  className="grow"
+                  onClick={() => dispatch({ type: 'stealVerdict', verdict: 'correcta' })}
+                >
+                  Robó
+                </Button>
+                <Button
+                  tone="plain"
+                  size="lg"
+                  block
+                  className="grow"
+                  onClick={() => dispatch({ type: 'stealVerdict', verdict: 'incorrecta' })}
+                >
+                  No robó
+                </Button>
+              </div>
+            </>
+          ) : (
+            <Button tone="cyan" size="lg" block onClick={() => setRevealed(true)}>
+              Revelar respuesta
             </Button>
-            <Button
-              tone="plain"
-              size="lg"
-              block
-              className="grow"
-              onClick={() => dispatch({ type: 'stealVerdict', verdict: 'incorrecta' })}
-            >
-              No robó
-            </Button>
-          </div>
+          )}
         </div>
       ) : null}
 
@@ -536,9 +535,7 @@ export function PlayScreen({ settings, onPatch, players, game, onExit, onRematch
             <span className="label muted">La respuesta era</span>
             <p className="answer-text">{last.question.answer}</p>
             {last.question.note ? <p className="muted">{last.question.note}</p> : null}
-            {state.reason && game.judgeMode === 'ia' ? (
-              <p className="muted">Árbitro: {state.reason}</p>
-            ) : null}
+            {state.reason ? <p className="muted">{state.reason}</p> : null}
           </div>
 
           <Button tone="lime" size="lg" block onClick={() => dispatch({ type: 'next' })}>

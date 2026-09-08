@@ -9,7 +9,12 @@ export interface Player {
   skin: number;
 }
 
-export type JudgeMode = 'ia' | 'manual';
+/**
+ * Como contesta el jugador. Ninguno de los dos consulta a la IA para corregir:
+ * si la escribe igual a la respuesta se le da por buena al instante, y si no,
+ * se revela y decide la mesa.
+ */
+export type JudgeMode = 'escrito' | 'voz';
 
 export interface GameSettings {
   /** Quien decide si la respuesta estuvo bien. */
@@ -30,9 +35,9 @@ export interface GameSettings {
 }
 
 export const DEFAULT_SETTINGS: GameSettings = {
-  // IA por defecto: es el unico modo que funciona con dos jugadores y un solo
-  // telefono, sin que nadie vea la respuesta antes de tiempo.
-  judgeMode: 'ia',
+  // Escrito por defecto: es el unico modo que funciona con dos jugadores y un
+  // solo telefono, sin que nadie vea la respuesta antes de tiempo.
+  judgeMode: 'escrito',
   timerSeconds: null,
   stealSeconds: 7,
   rounds: 20,
@@ -55,7 +60,7 @@ export type Phase =
   | 'idle' // todavia no empezo
   | 'waiting' // el motor pide una pregunta y nadie se la dio aun
   | 'asking' // pregunta en pantalla, el de turno esta respondiendo
-  | 'judging' // esperando el veredicto de la IA
+  | 'judging' // ya contesto y falta el veredicto: lo da la mesa
   | 'steal' // ventana de robo abierta
   | 'stealJudging'
   | 'reveal' // se muestra la respuesta y lo que paso

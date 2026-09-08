@@ -23,7 +23,6 @@ function fakeClient() {
         }),
       } satisfies GenerateResult;
     },
-    judge: async () => ({ verdict: 'correcta', reason: '' }),
   };
   return { client, calls };
 }
@@ -133,8 +132,7 @@ describe('Deck', () => {
   it('propaga el error si el generador vuelve con las manos vacias', async () => {
     const client: AiClient = {
       generate: async () => ({ questions: [] }),
-      judge: async () => ({ verdict: 'correcta', reason: '' }),
-    };
+      };
     const deck = new Deck(client, { brief: 'futbol', difficulty: 'normal' });
     await expect(deck.take()).rejects.toThrow(/ninguna pregunta/);
   });
@@ -210,7 +208,6 @@ describe('preparar el mazo de entrada', () => {
           })),
         };
       },
-      judge: async () => ({ verdict: 'correcta' as const, reason: '' }),
     };
     const deck = new Deck(client, { brief: 'futbol', difficulty: 'normal' });
 
@@ -235,7 +232,6 @@ describe('preparar el mazo de entrada', () => {
           })),
         };
       },
-      judge: async () => ({ verdict: 'correcta' as const, reason: '' }),
     };
     const deck = new Deck(client, { brief: 'futbol', difficulty: 'normal' });
 

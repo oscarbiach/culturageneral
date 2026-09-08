@@ -23,12 +23,21 @@ completa, y abre aunque la señal esté mala.
 - El cronómetro por pregunta viene apagado y se prende en los ajustes de la
   partida.
 
-### Quién corrige
+### Quién da el fallo
+
+Ustedes. **La IA sólo escribe las preguntas**: corregir se resuelve en el
+teléfono, sin salir a internet. Si la respuesta está escrita igual —tolerando
+mayúsculas, tildes, errores de tipeo y el apellido solo— el punto es automático.
+Si no, la app revela la respuesta y la mesa toca Mal / Media / Bien.
+
+Eso es a propósito: una corrección por internet tardaba segundos con el teléfono
+en el medio de la mesa, gastaba cupo, y se equivocaba lo suficiente como para
+discutirla igual.
 
 | Modo | Cómo funciona | Cuándo conviene |
 | --- | --- | --- |
-| **Árbitro IA** (por defecto) | El de turno escribe o dicta su respuesta y la IA la corrige, aguantando errores de tipeo, apodos y sinónimos. | Cuando son solo dos y un teléfono. Nadie ve la respuesta antes de tiempo, así que el robo es limpio. |
-| **A mano** | La pantalla muestra pregunta y respuesta, y alguien toca Mal / Media / Bien. | Cuando hay un tercero que lee, como se jugaba antes de que existiera la app. |
+| **Escribiendo** (por defecto) | El de turno escribe o dicta. Exacta → punto al instante; si no, se revela y deciden. | Cuando son solo dos y un teléfono. Nadie ve la respuesta antes de tiempo, así que el robo es limpio. |
+| **En voz alta** | Se contesta hablando, alguien revela la respuesta y toca el fallo. | Cuando hay un tercero que lee, como se jugaba antes de que existiera la app. |
 
 ## Ponerla a andar
 

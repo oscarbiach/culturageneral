@@ -47,6 +47,15 @@ Space Grotesk para el cuerpo.
   `animation`.
 - Los `input` no pueden bajar de 16px: iOS hace zoom al enfocarlos.
 
+## Corregir no sale a la red
+
+La IA sólo genera preguntas. El fallo lo dan los jugadores, apoyados en
+`src/shared/quick-judge.ts`, que es puro y decide al instante cuando la respuesta
+está escrita igual. **No vuelvas a meter una llamada de red en el camino de
+corregir**: ya se probó y era el peor problema de la app —segundos de espera con
+la mesa mirando, cupo gastado y timeouts—. Si `quick-judge` no está seguro,
+devuelve null y decide la mesa; ese es el diseño, no una limitación.
+
 ## Protocolo con el Worker
 
 `src/shared/contracts.ts` define el contrato y `PROTOCOL_VERSION`. Si cambiás la

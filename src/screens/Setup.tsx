@@ -147,27 +147,28 @@ export function SetupScreen({ settings, onPatch, onBack, onStart, onOpenSettings
       </section>
 
       <section className="stack-sm">
-        <h2 className="section-title">Quién corrige</h2>
+        <h2 className="section-title">Cómo se contesta</h2>
         <Segmented
-          ariaLabel="Modo de arbitraje"
+          ariaLabel="Cómo se contesta"
           value={game.judgeMode}
           tint="var(--lime)"
           options={[
-            { value: 'ia', label: 'Árbitro IA' },
-            { value: 'manual', label: 'A mano' },
+            { value: 'escrito', label: 'Escribiendo' },
+            { value: 'voz', label: 'En voz alta' },
           ]}
           onChange={(value) => set('judgeMode', value)}
         />
-        {game.judgeMode === 'ia' ? (
+        {game.judgeMode === 'escrito' ? (
           <p className="muted">
-            El de turno escribe o dicta su respuesta y la IA la corrige, aguantando errores de
-            tipeo y sinónimos. Nadie ve la respuesta antes de tiempo, así que el robo es limpio.
+            El de turno escribe o dicta su respuesta. Si la escribió igual, se le da el punto al
+            instante; si no, se revela la respuesta y deciden ustedes. Nadie la ve antes de
+            tiempo, así que el robo es limpio.
           </p>
         ) : (
           <div className="notice" style={{ ['--tint' as string]: 'var(--cyan)' }}>
             <span>
-              Necesitás a alguien que lea: la pantalla muestra la respuesta, así que el teléfono lo
-              tiene que sostener quien no está jugando esa pregunta.
+              Se contesta hablando y alguien revela la respuesta para dar el fallo. Como la
+              pantalla la muestra, el teléfono lo tiene que sostener quien no juega esa pregunta.
             </span>
           </div>
         )}

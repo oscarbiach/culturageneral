@@ -5,7 +5,7 @@
 
 import type { ProviderId } from '../shared/contracts';
 import { providerMeta } from '../shared/providers';
-import { DEFAULT_SETTINGS, type GameSettings } from '../game/types';
+import { DEFAULT_SETTINGS, type GameSettings, type JudgeMode } from '../game/types';
 
 export type ConnectionMode = 'proxy' | 'directa';
 export type Theme = 'auto' | 'claro' | 'oscuro';
@@ -55,6 +55,13 @@ export function defaultSettings(): AppSettings {
   };
 }
 
+/** Los modos se llamaban 'ia' y 'manual'; en un teléfono que ya jugó siguen ahí. */
+function migrateJudgeMode(saved: unknown): JudgeMode {
+  if (saved === 'escrito' || saved === 'ia') return 'escrito';
+  if (saved === 'voz' || saved === 'manual') return 'voz';
+  return DEFAULT_SETTINGS.judgeMode;
+}
+
 export function loadSettings(): AppSettings {
   const base = defaultSettings();
   try {
@@ -67,7 +74,11 @@ export function loadSettings(): AppSettings {
       // Si el duenio redesplegó apuntando a otro Worker, esa URL gana sobre la
       // vieja que quedo guardada en el telefono.
       proxyUrl: BAKED_PROXY || saved.proxyUrl || '',
-      lastGame: { ...base.lastGame, ...(saved.lastGame ?? {}) },
+      lastGame: {
+        ...base.lastGame,
+        ...(saved.lastGame ?? {}),
+        judgeMode: migrateJudgeMode(saved.lastGame?.judgeMode),
+      },
     };
   } catch {
     return base;

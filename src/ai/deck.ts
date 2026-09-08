@@ -13,22 +13,19 @@ import { LIMITS, type Difficulty } from '../shared/contracts';
 import type { Question } from '../game/types';
 import type { AiClient } from './transport';
 
-/** Un pedido mas grande que esto tarda mas de lo que conviene esperar. */
-const PER_REQUEST = Math.min(12, LIMITS.maxCount);
+/** Un pedido mas grande que esto no lo acepta el contrato. */
+const PER_REQUEST = LIMITS.maxCount;
+/**
+ * La primera tanda es corta a proposito: es la unica que frena el arranque.
+ * Cinco preguntas son varios minutos de mesa, de sobra para que llegue el resto.
+ */
+const FIRST_BATCH = 5;
 /** Y uno mas chico que esto no vale el viaje: mejor sumarlo a otro. */
 const MIN_PER_REQUEST = 3;
-/**
- * Cuantos pedidos salen juntos al preparar el mazo.
- *
- * Dos y no mas: cada tanda son en realidad dos llamadas (generar y revisar), y
- * los cupos gratuitos se miden por minuto. Tres tandas eran seis pedidos en el
- * mismo segundo, que es exactamente como se choca contra el limite.
- */
-const PARALLEL = 2;
-/** Separacion entre pedidos simultaneos, para no golpear todos en el mismo instante. */
+/** Separacion entre pedidos simultaneos, para no golpear el cupo todos juntos. */
 const STAGGER_MS = 400;
-/** Techo de la precarga inicial: mas que esto ya es demasiada espera de entrada. */
-const PRELOAD_CAP = 24;
+/** Techo de la precarga inicial. Lo que pase de aca entra jugando. */
+const PRELOAD_CAP = 20;
 /** Red de contencion: si igual se vacia, rellena por atras sin frenar el juego. */
 const REFILL_AT = 8;
 
@@ -60,6 +57,10 @@ export class Deck {
   private seen = new Set<string>();
   private feedback: string[] = [];
   private filling: Promise<void> | null = null;
+  /** El ultimo error de una tanda, para poder contarlo si no queda ninguna. */
+  private lastError: unknown = null;
+  /** Quienes estan esperando que entre la primera pregunta. */
+  private waiters: (() => void)[] = [];
   /** Cuantas preguntas necesita la partida en total. Sin esto el mazo se
    *  rellenaria para siempre, gastando cuota en preguntas que nadie va a ver. */
   private target = Number.POSITIVE_INFINITY;
@@ -80,35 +81,38 @@ export class Deck {
   }
 
   /**
-   * Prepara de una vez todas las preguntas de la partida.
+   * Prepara el mazo, pero solo hace esperar por las primeras.
    *
-   * Los pedidos van en paralelo porque tres de ocho tardan mucho menos que uno
-   * de veinticuatro, y esta espera es la unica que el jugador va a ver.
+   * Todas las tandas salen juntas al empezar. La partida arranca apenas llega la
+   * primera —cinco preguntas son varios minutos de mesa— y las demas van
+   * entrando mientras se juegan esas. Esperar el mazo completo eran cuarenta
+   * segundos largos de pantalla de carga, y no hacen falta para nada.
    */
   async preload(rounds: number): Promise<void> {
     this.target = rounds;
-    const goal = Math.min(rounds, PRELOAD_CAP);
+    const sizes = planBatches(Math.min(rounds, PRELOAD_CAP));
+    const jobs = this.launch(sizes);
 
-    // La revision descarta preguntas y los pedidos en paralelo a veces se pisan,
-    // asi que la primera vuelta puede quedar corta. Se completa aca, mientras el
-    // jugador todavia esta mirando la pantalla de carga, y no en medio del juego.
-    for (let round = 0; round < 3; round += 1) {
-      const missing = goal - this.queue.length;
-      if (missing <= 0) return;
-      const before = this.queue.length;
+    const everything = Promise.allSettled(jobs).then(() => undefined);
+    this.track(everything);
 
-      try {
-        await this.fill(missing, round === 0 ? PARALLEL : 1);
-      } catch (error) {
-        // Con preguntas en la mano se arranca igual: mejor una partida de doce
-        // que un cartel de error. Solo si el mazo quedo vacio se avisa.
-        if (this.queue.length) return;
-        throw error;
-      }
-
-      // Si una vuelta no sumo nada, insistir es perder el tiempo del jugador.
-      if (this.queue.length === before) return;
+    // Alcanza con que entre la primera tanda, sea cual sea: si la corta se cayo
+    // pero la grande llego, se juega igual.
+    await this.anyQuestion(everything);
+    if (!this.queue.length) {
+      throw this.lastError ?? new Error('No se pudieron preparar las preguntas.');
     }
+  }
+
+  /**
+   * Espera hasta que haya al menos una pregunta servible, o hasta que se acabe
+   * el trabajo en curso. Nunca espera el mazo completo: esa era la diferencia
+   * entre arrancar en cuatro segundos y arrancar en trece.
+   */
+  private anyQuestion(work: Promise<void>): Promise<unknown> {
+    if (this.queue.length) return Promise.resolve();
+    const first = new Promise<void>((resolve) => this.waiters.push(resolve));
+    return Promise.race([first, work]);
   }
 
   /** Cuantas faltan para completar la partida, contando lo ya servido. */
@@ -137,13 +141,20 @@ export class Deck {
     this.queue = [];
     this.generation += 1;
     this.filling = null;
+    this.releaseWaiters();
     this.options.onProgress?.(0);
   }
 
   /** Saca la proxima pregunta. Con el mazo precargado no espera nada. */
   async take(): Promise<Question> {
+    // Si el mazo esta vacio pero hay tandas en camino, se espera a la primera
+    // que llegue antes de salir a pedir mas: pedir de mas es lo que hace saltar
+    // el cupo, y esperar el mazo entero es lo que hacia eterno el arranque.
+    if (!this.queue.length && this.filling) {
+      await this.anyQuestion(this.filling.catch(() => undefined));
+    }
     if (!this.queue.length) {
-      await this.fill(Math.max(1, Math.min(PER_REQUEST, this.missing)), 1);
+      await this.fillOne(Math.max(1, Math.min(PER_REQUEST, this.missing)));
     }
 
     const question = this.queue.shift();
@@ -160,43 +171,51 @@ export class Deck {
     // Ni una pregunta mas de las que la partida va a usar.
     const needed = Math.min(PER_REQUEST, this.missing);
     if (needed <= 0) return;
-    void this.fill(needed, 1).catch(() => {
+    void this.fillOne(needed).catch(() => {
       // Un fallo de precarga no rompe nada: cuando toque `take` se reintenta y
       // ahi si el error llega a la pantalla.
     });
   }
 
-  /** Pide `count` preguntas repartidas en hasta `parallel` pedidos simultaneos. */
-  private fill(count: number, parallel: number): Promise<void> {
-    if (this.filling) return this.filling;
-
+  /**
+   * Lanza las tandas y devuelve una promesa por cada una, para poder esperar
+   * solo la primera. Van escalonadas para no golpear el cupo todas juntas.
+   */
+  private launch(sizes: number[]): Promise<void>[] {
     const generation = this.generation;
-    const run = (async () => {
-      const sizes = splitEvenly(count, parallel);
-      const rounds = await Promise.allSettled(
-        sizes.map(async (size, index) => {
-          if (index > 0) await new Promise((resolve) => setTimeout(resolve, index * STAGGER_MS));
-          return this.requestBatch(size);
-        }),
-      );
-      if (generation !== this.generation) return;
-
-      for (const round of rounds) {
-        if (round.status === 'fulfilled') this.absorb(round.value);
+    return sizes.map(async (size, index) => {
+      try {
+        if (index > 0) {
+          await new Promise((resolve) => setTimeout(resolve, index * STAGGER_MS));
+        }
+        const questions = await this.requestBatch(size);
+        // Si mientras tanto la mesa pidio una correccion, esta tanda ya no sirve.
+        if (generation !== this.generation) return;
+        this.absorb(questions);
+      } catch (error) {
+        this.lastError = error;
+        throw error;
       }
-
-      // Solo es un error si nos quedamos sin nada que servir. Si entro aunque sea
-      // una tanda, la partida arranca igual y el resto se completa por atras.
-      const failure = rounds.find((round) => round.status === 'rejected');
-      if (!this.queue.length && failure?.status === 'rejected') throw failure.reason;
-    })();
-
-    // Ojo: `finally` devuelve una promesa NUEVA, hay que comparar contra esa.
-    const wrapped: Promise<void> = run.finally(() => {
-      if (this.filling === wrapped) this.filling = null;
     });
-    this.filling = wrapped;
-    return wrapped;
+  }
+
+  /** Deja anotado que hay trabajo en curso, y lo borra al terminar. */
+  private track(work: Promise<void>): Promise<void> {
+    this.filling = work;
+    const clear = () => {
+      if (this.filling === work) this.filling = null;
+      // Nadie mas va a traer preguntas: soltamos a los que esperaban.
+      this.releaseWaiters();
+    };
+    // Con los dos handlers puestos, un fallo no queda como rechazo sin atender.
+    void work.then(clear, clear);
+    return work;
+  }
+
+  /** Una sola tanda, para rellenar por atras. */
+  private fillOne(count: number): Promise<void> {
+    if (this.filling) return this.filling;
+    return this.track(this.launch([count])[0]);
   }
 
   private async requestBatch(count: number): Promise<Question[]> {
@@ -213,6 +232,7 @@ export class Deck {
   }
 
   private absorb(questions: Question[]): void {
+    const before = this.queue.length;
     for (const question of questions) {
       const key = fingerprint(question.prompt);
       if (!key || this.seen.has(key)) continue;
@@ -220,7 +240,28 @@ export class Deck {
       this.queue.push(question);
     }
     this.options.onProgress?.(this.queue.length);
+    if (this.queue.length > before) this.releaseWaiters();
   }
+
+  private releaseWaiters(): void {
+    const waiting = this.waiters;
+    this.waiters = [];
+    for (const resolve of waiting) resolve();
+  }
+}
+
+/**
+ * Como se reparte el mazo inicial: una tanda corta primero y el resto detras.
+ *
+ * La primera es la unica que frena el arranque, asi que se la deja chica. Las
+ * que siguen son grandes porque nadie las espera mirando la pantalla, y cuantas
+ * menos sean, menos cupo se gasta.
+ */
+export function planBatches(total: number): number[] {
+  const first = Math.min(FIRST_BATCH, total);
+  const rest = total - first;
+  if (rest <= 0) return [first];
+  return [first, ...splitEvenly(rest, Math.ceil(rest / PER_REQUEST))];
 }
 
 /**

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { Deck, splitEvenly } from './deck';
+import { Deck, planBatches, splitEvenly } from './deck';
 import type { GenerateParams, GenerateResult } from '../shared/contracts';
 import type { AiClient } from './transport';
 
@@ -29,6 +29,8 @@ function fakeClient() {
 
 /** Deja correr las promesas de precarga pendientes. */
 const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+/** Espera tambien el escalonado entre tandas, que es de cientos de ms. */
+const settleAll = () => new Promise((resolve) => setTimeout(resolve, 800));
 
 describe('Deck', () => {
   it('sirve preguntas distintas una tras otra', async () => {
@@ -154,23 +156,62 @@ describe('Deck bajo StrictMode', () => {
 vi.spyOn(console, 'error').mockImplementation(() => {});
 
 describe('preparar el mazo de entrada', () => {
-  it('reparte el pedido en varios que salen a la vez', async () => {
-    const { client, calls } = fakeClient();
+  it('deja jugar apenas llega la primera tanda, sin esperar el mazo entero', async () => {
+    // En un objeto y no en una variable suelta: TypeScript no ve que el
+    // callback asincrónico la asigna, y la estrecha a `never`.
+    const soltar: { segunda?: () => void } = {};
+    const calls: number[] = [];
+    const client = {
+      generate: async (params: { count: number }) => {
+        calls.push(params.count);
+        // La primera tanda contesta ya; la segunda se cuelga hasta que la soltemos.
+        if (calls.length > 1) {
+          await new Promise<void>((resolve) => {
+            soltar.segunda = resolve;
+          });
+        }
+        return {
+          questions: Array.from({ length: params.count }, (_, i) => ({
+            prompt: `Pregunta ${calls.length}-${i}`,
+            answer: 'R',
+            accept: [],
+            topic: 't',
+            difficulty: 'normal' as const,
+          })),
+        };
+      },
+    };
     const deck = new Deck(client, { brief: 'futbol', difficulty: 'normal' });
 
     await deck.preload(20);
 
-    // Tres pedidos en paralelo tardan mucho menos que uno de veinte.
-    expect(calls.length).toBeGreaterThan(1);
-    expect(calls.reduce((total, call) => total + call.count, 0)).toBe(20);
+    // Ya se puede jugar aunque la tanda grande ni siquiera haya salido todavía.
+    expect(deck.pending).toBe(5);
+    expect(calls).toEqual([5]);
+
+    await settleAll();
+    expect(calls.length).toBe(2);
+    soltar.segunda?.();
+  });
+
+  it('el resto del mazo entra mientras se juegan las primeras', async () => {
+    const { client } = fakeClient();
+    const deck = new Deck(client, { brief: 'futbol', difficulty: 'normal' });
+
+    await deck.preload(20);
+    const alArrancar = deck.pending;
+    await settleAll();
+
+    expect(alArrancar).toBe(5);
     expect(deck.pending).toBe(20);
   });
 
-  it('con el mazo listo, servir una pregunta no toca la red', async () => {
+  it('con el mazo ya lleno, servir una pregunta no toca la red', async () => {
     const { client, calls } = fakeClient();
     const deck = new Deck(client, { brief: 'futbol', difficulty: 'normal' });
 
     await deck.preload(20);
+    await settleAll();
     const antes = calls.length;
     for (let i = 0; i < 10; i += 1) await deck.take();
 
@@ -187,6 +228,7 @@ describe('preparar el mazo de entrada', () => {
     });
 
     await deck.preload(20);
+    await settleAll();
     expect(avance.length).toBeGreaterThan(1);
     expect(avance[avance.length - 1]).toBe(20);
   });
@@ -212,6 +254,7 @@ describe('preparar el mazo de entrada', () => {
     const deck = new Deck(client, { brief: 'futbol', difficulty: 'normal' });
 
     await deck.preload(20);
+    await settleAll();
     expect(deck.pending).toBeLessThan(20);
     expect(deck.pending).toBeGreaterThan(0);
   });
@@ -251,11 +294,10 @@ describe('splitEvenly', () => {
     expect(splitEvenly(1, 3)).toEqual([1]);
   });
 
-  it('parte de más cuando hace falta, para no pasarse del techo por pedido', () => {
+  it('nunca se pasa del techo por pedido', () => {
     const grande = splitEvenly(40, 3);
     expect(grande.reduce((a, b) => a + b, 0)).toBe(40);
-    expect(grande.every((n) => n > 0 && n <= 12)).toBe(true);
-    expect(grande.length).toBeGreaterThan(3);
+    expect(grande.every((n) => n > 0 && n <= 15)).toBe(true);
   });
 });
 
@@ -265,6 +307,7 @@ describe('no gasta cuota de mas', () => {
     const deck = new Deck(client, { brief: 'futbol', difficulty: 'normal' });
 
     await deck.preload(10);
+    await settleAll();
     const pedidosIniciales = calls.length;
 
     // Se juega la partida entera.
@@ -283,6 +326,7 @@ describe('no gasta cuota de mas', () => {
 
     // 30 rondas: la precarga tiene tope, el resto entra mientras se juega.
     await deck.preload(30);
+    await settleAll();
     for (let i = 0; i < 30; i += 1) {
       await deck.take();
       await settle();
@@ -292,5 +336,23 @@ describe('no gasta cuota de mas', () => {
     expect(pedidas).toBeGreaterThanOrEqual(30);
     // Un margen chico se banca; el derroche no.
     expect(pedidas).toBeLessThanOrEqual(42);
+  });
+});
+
+describe('planBatches', () => {
+  it('pone una tanda corta adelante: es la única que frena el arranque', () => {
+    expect(planBatches(20)).toEqual([5, 15]);
+    expect(planBatches(10)).toEqual([5, 5]);
+  });
+
+  it('en partidas cortas no parte al pedo', () => {
+    expect(planBatches(5)).toEqual([5]);
+    expect(planBatches(3)).toEqual([3]);
+  });
+
+  it('suma siempre el total pedido', () => {
+    for (const total of [1, 4, 7, 12, 20]) {
+      expect(planBatches(total).reduce((a, b) => a + b, 0)).toBe(total);
+    }
   });
 });
